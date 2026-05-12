@@ -190,6 +190,12 @@ def _short(v: Any, n: int = 80) -> str:
     return s if len(s) <= n else s[:n] + "…"
 
 
+# Diagnostic keys: keep more characters because truncating these (especially
+# `command`) hides the literal action and forces the analyzer to guess.
+_LONG_KEYS = {"command", "file_path", "path"}
+_LONG_LIMIT = 300
+
+
 def summarize_tool_input(inp: dict) -> str:
     if not isinstance(inp, dict) or not inp:
         return ""
@@ -197,11 +203,13 @@ def summarize_tool_input(inp: dict) -> str:
     bits, seen = [], set()
     for k in priority:
         if k in inp:
-            bits.append(f"{k}={_short(inp[k])}")
+            limit = _LONG_LIMIT if k in _LONG_KEYS else 80
+            bits.append(f"{k}={_short(inp[k], limit)}")
             seen.add(k)
     for k, v in inp.items():
         if k not in seen:
-            bits.append(f"{k}={_short(v)}")
+            limit = _LONG_LIMIT if k in _LONG_KEYS else 80
+            bits.append(f"{k}={_short(v, limit)}")
     return ", ".join(bits)
 
 
@@ -241,10 +249,15 @@ def build_episodes(records: list[dict]) -> list[Episode]:
             tc.result_lines = txt.count("\n") + (1 if txt else 0)
             if tr["is_error"]:
                 tc.result_status = "error"
-                tc.result_tail = "\n".join(txt.splitlines()[-20:])
+                # Keep a generous tail for errors (~20 lines, capped at 800B).
+                tc.result_tail = "\n".join(txt.splitlines()[-20:])[-800:]
             else:
                 tc.result_status = "ok"
-                tc.result_tail = ""
+                # Keep a brief success tail (last ~3 lines, capped at 200B).
+                # This is what lets the analyzer verify e.g. commit hashes,
+                # pytest summaries, "File created" messages -- evidence that
+                # the prose-only narration is NOT a substitute for.
+                tc.result_tail = "\n".join(txt.splitlines()[-3:])[-200:]
             attached = True
         return attached
 
@@ -379,7 +392,7 @@ def render_md(episodes: list[Episode], session_path: Path) -> str:
                     f"- `{tc.name}({tc.input_summary})` → {status} "
                     f"[{tc.result_lines} lines, {tc.result_bytes} B]"
                 )
-                if tc.result_status == "error" and tc.result_tail:
+                if tc.result_tail:
                     lines.append("  ```")
                     for tl in tc.result_tail.splitlines():
                         lines.append(f"  {tl}")
