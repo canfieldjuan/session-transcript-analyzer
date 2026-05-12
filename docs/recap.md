@@ -111,11 +111,19 @@ analysis cheap (~$5 instead of ~$150).
 
 ## 5. What's next
 
-**`analyze.py` (Layer 2) is built but unverified.** A separate local session
-runs it and reports back. The verification protocol lives in
-`docs/verify-analyze.md` — that's the playbook: dry-run first, then 10
-baseline episodes, then 14 error episodes, with concrete spot-check criteria
-and a "report back" template.
+**Layers 1, 2, and 3 are all built.** Verification pass 2 confirmed the
+per-episode analyzer is calibrated: anti-bias is closed (12/12 verify=yes
+records back evidence with tool tails, not prose), `did_model_verify` has
+healthy distribution (~30/70 yes/no on baseline), and the new
+`evidence_lifted_from_prose` flag fires when the model narrates results
+without tool confirmation. See `docs/verify-analyze.md` for the protocol
+and `docs/run-full.md` for the green-lit full-session run.
+
+**Pending: the full 307-episode run + Layer 3 pattern report.**
+- `python3 analyze.py --first 1000 --resume` (will analyze all unvisited
+  episodes; ~$6 at current rates).
+- `python3 patterns.py --tz <your IANA TZ>` to produce
+  `out/patterns-report.md` — one Opus 4.7 call, ~$2-4.
 
 Per-episode output (one JSON object per line in `out/analysis.jsonl`):
 

@@ -201,13 +201,7 @@ def analyze_one(client: Anthropic, ep: dict) -> tuple[dict, dict]:
     msg = client.messages.create(
         model=MODEL,
         max_tokens=MAX_OUTPUT_TOKENS,
-        system=[
-            {
-                "type": "text",
-                "text": SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
+        system=SYSTEM_PROMPT,
         messages=[
             {"role": "user", "content": user_md},
         ],
@@ -217,8 +211,6 @@ def analyze_one(client: Anthropic, ep: dict) -> tuple[dict, dict]:
     usage = {
         "input_tokens": msg.usage.input_tokens,
         "output_tokens": msg.usage.output_tokens,
-        "cache_read_tokens": getattr(msg.usage, "cache_read_input_tokens", 0) or 0,
-        "cache_write_tokens": getattr(msg.usage, "cache_creation_input_tokens", 0) or 0,
     }
     return parsed, usage
 
@@ -262,7 +254,6 @@ def write_summary(
 
     in_cost = usage_total["input_tokens"] * 3 / 1_000_000
     out_cost = usage_total["output_tokens"] * 15 / 1_000_000
-    cache_read_cost = usage_total["cache_read_tokens"] * 0.30 / 1_000_000
 
     lines: list[str] = []
     lines.append("# Analysis summary")
@@ -285,16 +276,13 @@ def write_summary(
             lines.append(f"- `{flag}`: {c} ({pct:.0f}% of episodes)")
     lines.append("")
     lines.append("## Token usage (this run only)")
-    lines.append(f"- input_tokens:        {usage_total['input_tokens']:,}")
-    lines.append(f"- output_tokens:       {usage_total['output_tokens']:,}")
-    lines.append(f"- cache_read_tokens:   {usage_total['cache_read_tokens']:,}")
-    lines.append(f"- cache_write_tokens:  {usage_total['cache_write_tokens']:,}")
+    lines.append(f"- input_tokens:  {usage_total['input_tokens']:,}")
+    lines.append(f"- output_tokens: {usage_total['output_tokens']:,}")
     lines.append("")
     lines.append("## Approx cost this run (Sonnet 4.6 list prices)")
-    lines.append(f"- input:      ${in_cost:.4f}")
-    lines.append(f"- output:     ${out_cost:.4f}")
-    lines.append(f"- cache read: ${cache_read_cost:.4f}")
-    lines.append(f"- **total:    ${in_cost + out_cost + cache_read_cost:.4f}**")
+    lines.append(f"- input:   ${in_cost:.4f}")
+    lines.append(f"- output:  ${out_cost:.4f}")
+    lines.append(f"- **total: ${in_cost + out_cost:.4f}**")
     lines.append("")
     (out_dir / "analysis-summary.md").write_text("\n".join(lines))
 
@@ -395,8 +383,6 @@ def main() -> None:
     usage_total = {
         "input_tokens": 0,
         "output_tokens": 0,
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
     }
     this_run = 0
 
