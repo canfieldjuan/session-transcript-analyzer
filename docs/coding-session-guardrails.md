@@ -106,15 +106,14 @@ the most recent message (not five messages ago, not "you said yes
 yesterday"):
 
 - `git reset --hard`, `git checkout -- .`, `git restore .`,
-  `git clean -f`, `git branch -D`, `git stash drop`,
-  `git push --force`, `git push --force-with-lease`
+  `git clean -f`, `git branch -D`, `git stash drop`
 - `git commit --amend` on a published commit
-- `git rebase` (interactive or otherwise) on a branch with upstream
 - `rm -rf`, `rm` of any tracked file
 - `--no-verify`, `--no-gpg-sign` flags
 - Database drops, table drops, migration rollbacks
-- Force-pushing to `main` or `master` — always refuse, even with
-  named authorization, and warn
+- Force-pushing to ANY branch (`git push --force`,
+  `git push --force-with-lease`) — always refuse, even
+  with named authorization, and warn
 
 A user saying "do it" or "fix it" is not naming the operation. The
 operation name must appear in the last user message.
