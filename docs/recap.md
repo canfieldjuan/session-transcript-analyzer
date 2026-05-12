@@ -111,13 +111,13 @@ analysis cheap (~$5 instead of ~$150).
 
 ## 5. What's next
 
-**Build `analyze.py` (Layer 2).** Pick a slice and analyze it:
+**`analyze.py` (Layer 2) is built but unverified.** A separate local session
+runs it and reports back. The verification protocol lives in
+`docs/verify-analyze.md` — that's the playbook: dry-run first, then 10
+baseline episodes, then 14 error episodes, with concrete spot-check criteria
+and a "report back" template.
 
-1. **Recommended first slice: episodes 0–9** — control group, cheap, validates the prompt/JSON shape works.
-2. After that: the **14 error episodes** — where the pain was.
-3. Later: episodes around the **biggest time gaps** — to compare fresh-start vs. grinding-fatigue.
-
-Per-episode output should be a small JSON:
+Per-episode output (one JSON object per line in `out/analysis.jsonl`):
 
 ```json
 {
@@ -133,6 +133,14 @@ Per-episode output should be a small JSON:
 
 **Free-form `risk_flags`**, not a fixed taxonomy. Real patterns will emerge
 from 10–20 analyzed episodes. That becomes the taxonomy in Layer 3.
+
+After verification passes:
+- If the analyzer is biased lenient → tune the system prompt (likely the
+  ANTI-BIAS NOTE section).
+- If the flags are noisy → trim the example list in the prompt to the
+  3–5 names that actually showed up.
+- If signal is clean → run on the rest of the 307 episodes (~$3–5) and
+  start building Layer 3 (cross-episode pattern report on Opus 4.7).
 
 ---
 
