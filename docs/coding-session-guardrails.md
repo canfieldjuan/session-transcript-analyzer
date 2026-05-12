@@ -28,13 +28,14 @@ Both files compose — global runs first, project-specific layers on top.
 
 ## Rules
 
-### 1. Short-prompt scope check
+### 1. Delegation-phrase scope check
 
-If the user's most recent message is **fewer than 5 words** OR matches
-a pure-continuation pattern (`continue`, `next`, `yes`, `ok`, `do it`,
-`lets go`, `sure`, `pr7 next`, `1.`, `2.`, etc.), DO NOT take any of
-the following actions without first restating what you understand the
-scope to be in one sentence and getting explicit confirmation:
+If the user's most recent message hands the decision back to you —
+phrases like `pick one`, `you take it`, `you decide`, `your call`,
+`your recs work for me`, `lets go with your suggestion`, or `lets keep
+pushing` — DO NOT take any of the following actions without first
+restating what you intend to do in one sentence and getting explicit
+confirmation:
 
 - Merging a pull request
 - Pushing to a remote
@@ -44,11 +45,24 @@ scope to be in one sentence and getting explicit confirmation:
 - Modifying more than two files in one batch
 - Making API calls that have side effects beyond local state
 
-Cheap reads (`Read`, `Grep`, `ls`, `git status`, `git log`) are fine —
-they cost nothing and produce information the user can correct.
+**These are NOT triggers** (execute normally):
+- Short prompts that name a scope: `pr6 next`, `surgical`, `retry merge`,
+  `leave the comment`, `cheap fix`, `325 has comments`.
+- Binary affirmations: `yes`, `continue`, `ok`, `1.`, `2.`, `c is good
+  with me`, `do it`. Treated as direction.
 
-**Why:** `vague_requirements` + `model_assumed_without_asking` co-fired
-in 45 episodes. Short prompts are not authorization for broad action.
+Cheap reads (`Read`, `Grep`, `ls`, `git status`, `git log`) are fine
+in any case.
+
+**Why:** Of 47 episodes flagged as `vague_requirements +
+model_assumed_without_asking`, only **8 (17%) were genuine delegation**;
+16 were directed instructions the analyzer misread, 17 were within-plan
+binary affirmations, 6 were neither. Of the 7 delegated prompts that
+triggered a publish action, **6 produced visible rework or workflow
+complaints**. Trigger on the delegation phrase, not the word count.
+Binary affirmations to open questions ("yes" to "pick one or wrap?")
+will slip through this rule by design — measuring how often that
+matters is the next iteration.
 
 ### 2. Verify with tool output, not prose
 
