@@ -40,7 +40,7 @@ def _require_anthropic():
 
 
 MODEL = "claude-sonnet-4-6"
-MAX_OUTPUT_TOKENS = 800
+MAX_OUTPUT_TOKENS = 2000
 
 
 SYSTEM_PROMPT = """You are a forensic analyst of one coding-session episode.
