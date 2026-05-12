@@ -6,6 +6,40 @@ slices.
 
 ---
 
+## 0a. Changes since the first verification pass
+
+If this is your second (or later) pass, here's what's new:
+
+- **Prefill removed** — this Sonnet variant doesn't support assistant-message
+  prefill. The model now returns a bare JSON object; `extract_first_json`
+  locates it.
+- **Anti-bias hardened** — explicit rule: a commit hash, test count, or
+  success claim in the assistant's prose does NOT count as verification.
+  Only `tail:` content from tool results counts. New flag
+  `evidence_lifted_from_prose` captures this failure mode.
+- **`long_grind` threshold dropped to 15** (from 20) — matches what the
+  analyzer was already firing in practice.
+- **`max_tokens` bumped to 800** — guards against the ep-169 cutoff case.
+- **Incomplete responses are now skipped, not written** — no more degenerate
+  records with only `episode_index` + `timestamp`.
+- **`parse.py` keeps a success tail for every tool result** (last ~3 lines,
+  200B max) so the analyzer can see commit hashes, pytest summaries, "File
+  updated" — the evidence that distinguishes verification from prose.
+- **`parse.py` widened diagnostic-key truncation** (`command`, `file_path`,
+  `path`) from 80 to 300 chars so long bash invocations aren't hidden.
+
+These two `parse.py` changes alter the rendered episode shape, so **you
+must re-run `parse.py` for the new rendering to apply.** Recommended flow:
+
+```bash
+rm out/episodes.json out/episodes.md out/analysis.jsonl
+python3 parse.py
+python3 analyze.py --first 10
+python3 analyze.py --errors-only --first 14 --resume
+```
+
+---
+
 ## 0. Setup (one-time)
 
 ```bash
@@ -91,14 +125,27 @@ For each spot-checked record, **cross-reference with `out/episodes.md`**:
 
 - [ ] `what_user_asked` actually matches what you typed in that episode.
 - [ ] `what_model_did` is accurate — not flattering, not exaggerating.
-- [ ] If `did_model_verify == "yes"`, find the verifying tool call in the
-      episode. A successful `Bash(pytest)` or `Bash(npm test)` or similar.
-      No verification tool call = the analyzer is wrong, should be "no".
+- [ ] If `did_model_verify == "yes"`, find the verifying evidence **in a
+      tool result tail**, not in the assistant's prose. A successful
+      `Bash(pytest) ... tail: 5 passed`, an `Edit ... tail: File updated`,
+      a commit hash that appears in a `Bash(git commit) tail:` — those
+      count. A commit hash that only appears in the assistant's text reply
+      does NOT count.
 - [ ] Each `risk_flag` has supporting evidence in `notes` or in the rendered
       episode. Flags without textual evidence = analyzer hallucination.
 
-If you find 2+ unsupported flags or wrong-direction verify calls, the prompt
-needs tuning — note which episodes and report back.
+**Anti-bias spot-check (the ep-4 class of failure).** For every record
+where `verify=yes`, run this:
+
+1. Open `out/episodes.md` and locate the same episode.
+2. Find the specific claim the analyzer used to justify `yes` in `notes`
+   (e.g. "tool output confirmed commit hash fe6458ff").
+3. Confirm that string (`fe6458ff` in this example) appears in a `tail:`
+   block of a tool result. If it only appears in the `**Assistant (text):**`
+   section — the analyzer credited assistant prose as tool output. That's
+   the systemic bias and means the prompt is still leaking.
+
+If 2+ records fail this check, the ANTI-BIAS NOTE needs another pass.
 
 ---
 
