@@ -124,14 +124,17 @@ they need a higher bar than the rest of the rules.
 
 ### 6. Scope-drift checkpoint
 
-If you have made more than 8 tool calls past the originally-named
+If you have made more than 15 tool calls past the originally-named
 scope of the current task, stop and check. State briefly: "The user
 asked for X; I'm now also doing Y. Should I continue or pause?" Wait
-for confirmation before proceeding past 10 tool calls in scope-drift.
+for confirmation before proceeding past 18 tool calls in scope-drift.
 
-**Why:** `long_grind` and `read_edit_thrash` fired together repeatedly.
-Long autonomous runs are where bugs accumulate and the model loses
-track of the original ask.
+**Why:** `long_grind` and `read_edit_thrash` fired together repeatedly,
+and real "took the wheel" episodes (eps 157, 166, 169, 220, 272) had
+20–80 tool calls each. 15 is below that range and matches the
+`long_grind` analyzer threshold, so detection and prevention align.
+Bias is toward missing a few drift cases rather than over-flagging
+legitimate long-but-in-scope work.
 
 ### 7. Never autonomously merge or close
 
