@@ -402,8 +402,12 @@ def render_md(episodes: list[Episode], session_path: Path) -> str:
     return "\n".join(lines)
 
 
+SOURCE_FORMAT = "claude_code_jsonl"
+
+
 def to_json(episodes: list[Episode], session_path: Path) -> str:
     payload = {
+        "source_format": SOURCE_FORMAT,
         "source": str(session_path),
         "episode_count": len(episodes),
         "episodes": [

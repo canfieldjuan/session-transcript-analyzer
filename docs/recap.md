@@ -249,3 +249,260 @@ analyzing one more slice of real episodes.
 - Repo: `canfieldjuan/session-transcript-analyzer`
 - Branch: `claude/session-transcript-analyzer-K8bUH`
 - All work pushed here. New session: keep working on the same branch.
+
+---
+
+## 10. Stable interfaces (the contracts between layers)
+
+This section exists so the next session doesn't accidentally cement
+coupling that's hard to undo. The whole point of having three scripts is
+that each one talks to the next through a documented JSON contract — not
+through shared in-memory objects or implicit assumptions.
+
+**Treat these schemas as load-bearing.** Add fields freely. Never rename
+or remove a field without a migration. Document additions here.
+
+### 10a. `out/episodes.json` — produced by `parse.py`, consumed by `analyze.py`
+
+```jsonc
+{
+  "source_format": "claude_code_jsonl",   // marker for the parser used
+  "source":        "<absolute path to source file>",
+  "episode_count": <int>,
+  "episodes": [
+    {
+      "index":                 <int, 0-based>,
+      "timestamp":             "<ISO 8601 string or null>",
+      "gap_seconds_from_prev": <int or null>,
+      "user_text":             "<string, full human prompt, system-reminders stripped>",
+      "assistant_text":        "<string, full assistant text reply>",
+      "tool_calls": [
+        {
+          "name":          "<string, tool name>",
+          "input_summary": "<string, short human-readable args>",
+          "raw_input":     <object, full tool args>,
+          "result_status": "ok" | "error" | "missing",
+          "result_lines":  <int>,
+          "result_bytes":  <int>,
+          "result_tail":   "<string, trimmed tail of tool output>"
+        }
+      ],
+      "has_tool_error":       <bool>,
+      "tool_count":           <int>,
+      "user_tokens_est":      <int>,
+      "assistant_tokens_est": <int>,
+      "raw_message_count":    <int>
+    }
+  ]
+}
+```
+
+**Stable promises:**
+- Every episode has `index`, `user_text`, and `tool_calls` (possibly empty).
+- `timestamp` may be missing on copy-pasted transcripts; always check.
+- New parsers MUST emit this exact shape. They MAY add extra fields under
+  a parser-specific namespace (e.g. `cursor_meta: {…}`); consumers MUST
+  ignore unknown fields rather than rejecting the record.
+
+### 10b. `out/analysis.jsonl` — produced by `analyze.py`, consumed by `patterns.py`
+
+One JSON object per line, no trailing comma, UTF-8.
+
+```jsonc
+{
+  "episode_index":     <int>,                 // matches episodes.json[].index
+  "timestamp":         "<ISO 8601 or 'unknown'>",
+  "what_user_asked":   "<one sentence>",
+  "what_model_did":    "<one sentence>",
+  "did_model_verify":  "yes" | "no" | "unknown",
+  "risk_flags":        ["<snake_case string>", …],
+  "notes":             "<1-2 sentences, evidence-based>"
+}
+```
+
+**Stable promises:**
+- `episode_index` is the join key back to `episodes.json`.
+- `risk_flags` are opaque strings to consumers — DO NOT pattern-match on
+  specific names except in the system prompt of `patterns.py`. The
+  taxonomy can grow.
+- `did_model_verify` is enum-restricted to those three values.
+- Records that fail validation (missing required fields) MUST be dropped
+  before reaching disk, not written degenerate. `analyze.py` already
+  enforces this.
+
+### 10c. What is NOT part of the contract
+
+These are implementation details and may change:
+- `tool_calls[].raw_input` — parser-specific shape. Use `input_summary`
+  for cross-parser logic.
+- `tool_calls[].result_status == "missing"` — Claude Code ordering
+  artifact; other parsers may not produce it.
+- The exact wording in `notes` — sentence shape and grammar are not
+  contract.
+- Token estimates (`user_tokens_est`, `assistant_tokens_est`) — purely
+  advisory, computed locally with a rough chars/4 heuristic.
+
+### 10d. The anti-coupling rules
+
+1. **Inputs flow one way: parse → analyze → patterns.** A later layer
+   never reads files produced by a more downstream layer (e.g.
+   `analyze.py` does not read `patterns-report.md`). Cron wrappers may
+   compose, but the scripts do not call each other.
+2. **No script reaches outside its declared inputs.** If `patterns.py`
+   needs a signal, it comes from `analysis.jsonl` or `episodes.json` —
+   never from the raw `.jsonl` and never from the filesystem at large.
+3. **Schemas grow, they don't break.** New fields are additive.
+   Consumers ignore unknowns. Producers never remove a field that's been
+   on disk; deprecate by writing alongside the new shape until consumers
+   migrate.
+4. **Prompts and taxonomy are NOT contracts.** They live inside the
+   Python source. They can change every commit. The JSON output is the
+   stable surface.
+
+If you find yourself wanting to refactor the contracts to add a feature,
+**stop** and check whether the feature is actually needed yet (sections
+11d–11g are all real candidates; most of them are deferred for a reason).
+
+---
+
+## 11. Roadmap notes (deferred, not built yet)
+
+### 11a. Use the Message Batches API, not concurrent calls
+
+When this graduates to a nightly cron job, switch `analyze.py` from
+sequential one-call-at-a-time to the **Anthropic Message Batches API**.
+Reasons, in order:
+
+- **50% discount on input + output.** Cuts a $6 full-session run to $3,
+  a $30 weekly batch (5 sessions × 307 episodes) to $15.
+- **Cron doesn't need real-time.** Batches return within 24h; a nightly
+  job that finishes by morning is fine.
+- **Higher effective throughput.** A single batch can hold ~10K requests;
+  no per-call rate-limit pressure, no client-side concurrency code, no
+  retry orchestration.
+- **Simpler than parallel calls.** Concurrent `asyncio` requests would
+  hit rate limits fast, complicate `--resume`, and cost the same as
+  sequential. Batches are strictly better when you don't need <1h
+  latency.
+
+What stays the same: the per-episode prompt, the JSON schema, the trim
+policy. Only the call-site in `analyze.py` changes:
+
+- One submission step that posts all unanalyzed episodes as a batch.
+- One polling/wait step (or a separate "collect" command) that reads
+  the batch results and appends to `out/analysis.jsonl`.
+- `--resume` still works; just at batch granularity.
+
+`patterns.py` is one big call (~$2-4) so batching saves only ~$1-2
+there. Lower priority than analyze.py, but free to fold in once the
+Batches plumbing exists.
+
+### 11b. Cron-friendly entry point
+
+For the nightly job to be hands-off, we need:
+
+- **No interactive picker.** Auto-discover `~/.claude/projects/*.jsonl`
+  files modified since the last run (mtime stamp on disk). Today,
+  `parse.py` requires a number from stdin.
+- **One command per session.** Something like
+  `python3 cron_run.py --since "yesterday"` that finds new sessions,
+  parses + submits a batch + collects + runs patterns, all without
+  prompts.
+- **Idempotent.** Re-running the same day must not re-submit work.
+  `--resume` already handles this at the analyze layer; we'd extend it
+  to the discovery layer.
+- **Structured logs to a file**, not stdout interactive printing.
+  `out/cron-YYYY-MM-DD.log` keeps the trail.
+
+None of this is built. It's a deliberate next step once the MVP has
+proven its value on a few hand-run sessions.
+
+### 11c. Order of operations when we get there
+
+1. Land Batches API in `analyze.py` (foreground command, manual run).
+2. Land it in `patterns.py`.
+3. Build the cron entry point that wraps both.
+4. Add a basic `out/cron-status.json` so the next run knows where the
+   last one stopped.
+
+Resist building the cron entry point before steps 1-2 are solid. A cron
+job that calls broken plumbing creates silent failures that pile up for
+days before anyone notices.
+
+### 11d. Pluggable parsers (help other coders)
+
+Today `parse.py` only reads Claude Code JSONL. To make this useful for
+people on Cursor, Continue, ChatGPT exports, raw markdown, etc., we need
+multiple parsers. The decoupling is mostly done already because
+**every parser produces the same `episodes.json` shape** (see section 11).
+What's not done:
+
+- A `parsers/` directory with one module per source format. Each module
+  exposes `discover(path) -> list[Path]` and `parse(path) -> list[Episode]`.
+- `parse.py` becomes a thin dispatcher: detect format from file
+  extension / signature, pick a parser, run it.
+- The `source_format` field already in `episodes.json` is the marker
+  downstream tools use to know what they're reading.
+
+Do NOT build this until at least one other format is needed in earnest.
+The Episode dataclass + JSON schema is the contract that makes this a
+small change later, not a refactor.
+
+### 11e. Anonymizer (Haiku co-worker call)
+
+Once 11d exists and people want to share their findings (or contribute to
+a public "common AI coding pitfalls" dataset), we need scrubbing. Path
+literals, repo names, ticket numbers, API URLs, possible secrets, even
+distinctive prose patterns all leak.
+
+This is the right place for a **cheap co-worker LLM call** (Haiku 4.5):
+
+- Input: one Episode or one analysis record.
+- Output: the same record with sensitive substrings replaced by stable
+  placeholders (`<PATH:1>`, `<REPO:1>`, `<HASH:1>`, etc.). Stable means
+  the same input value gets the same placeholder across a whole session
+  so cross-episode patterns remain analyzable.
+- Why an LLM rather than regex: paths and repo names have too many
+  variants. Regex catches 70%, leaks the other 30%. Haiku catches >95%
+  cheaply.
+- Cost: trivial — a few cents per session.
+
+Until 11d ships and sharing is on the table, this is dead weight.
+
+### 11f. Multi-session runs (cron friendly)
+
+`parse.py`, `analyze.py`, and `patterns.py` already accept `--out-dir`,
+so the cron wrapper just needs to pick a per-session subdirectory:
+
+```
+out/2026-05-12_session-abc123/
+    episodes.json
+    episodes.md
+    analysis.jsonl
+    analysis-summary.md
+    patterns-report.md
+```
+
+No code change in the existing scripts is required. The cron entry point
+discovers new sessions, computes a stable session_id (uuid from the
+JSONL filename), and passes `--out-dir out/<date>_session-<id>/`.
+
+Avoid the trap of teaching the three scripts to find their own friends
+("look in the previous run's directory"). The cron wrapper composes them;
+the scripts stay single-purpose.
+
+### 11g. Things to keep explicitly out of scope
+
+These look tempting and should not happen unless someone has a concrete
+need beyond "it would be cool":
+
+- `BaseParser` class hierarchy or plugin registry. Until two parsers
+  exist, there is nothing to abstract.
+- Configurable prompts (YAML/JSON config files). Edit the Python source.
+  When you have two real users with different needs, then config.
+- A web dashboard / UI. Listed in section 8 already.
+- An ORM / database layer. The JSONL files are the database.
+- An IDE plugin. Listed in section 8.
+
+The minute any of these shows up in a planning session without a real
+forcing function, push back.
