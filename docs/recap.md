@@ -249,3 +249,69 @@ analyzing one more slice of real episodes.
 - Repo: `canfieldjuan/session-transcript-analyzer`
 - Branch: `claude/session-transcript-analyzer-K8bUH`
 - All work pushed here. New session: keep working on the same branch.
+
+---
+
+## 10. Roadmap notes (deferred, not built yet)
+
+### 10a. Use the Message Batches API, not concurrent calls
+
+When this graduates to a nightly cron job, switch `analyze.py` from
+sequential one-call-at-a-time to the **Anthropic Message Batches API**.
+Reasons, in order:
+
+- **50% discount on input + output.** Cuts a $6 full-session run to $3,
+  a $30 weekly batch (5 sessions × 307 episodes) to $15.
+- **Cron doesn't need real-time.** Batches return within 24h; a nightly
+  job that finishes by morning is fine.
+- **Higher effective throughput.** A single batch can hold ~10K requests;
+  no per-call rate-limit pressure, no client-side concurrency code, no
+  retry orchestration.
+- **Simpler than parallel calls.** Concurrent `asyncio` requests would
+  hit rate limits fast, complicate `--resume`, and cost the same as
+  sequential. Batches are strictly better when you don't need <1h
+  latency.
+
+What stays the same: the per-episode prompt, the JSON schema, the trim
+policy. Only the call-site in `analyze.py` changes:
+
+- One submission step that posts all unanalyzed episodes as a batch.
+- One polling/wait step (or a separate "collect" command) that reads
+  the batch results and appends to `out/analysis.jsonl`.
+- `--resume` still works; just at batch granularity.
+
+`patterns.py` is one big call (~$2-4) so batching saves only ~$1-2
+there. Lower priority than analyze.py, but free to fold in once the
+Batches plumbing exists.
+
+### 10b. Cron-friendly entry point
+
+For the nightly job to be hands-off, we need:
+
+- **No interactive picker.** Auto-discover `~/.claude/projects/*.jsonl`
+  files modified since the last run (mtime stamp on disk). Today,
+  `parse.py` requires a number from stdin.
+- **One command per session.** Something like
+  `python3 cron_run.py --since "yesterday"` that finds new sessions,
+  parses + submits a batch + collects + runs patterns, all without
+  prompts.
+- **Idempotent.** Re-running the same day must not re-submit work.
+  `--resume` already handles this at the analyze layer; we'd extend it
+  to the discovery layer.
+- **Structured logs to a file**, not stdout interactive printing.
+  `out/cron-YYYY-MM-DD.log` keeps the trail.
+
+None of this is built. It's a deliberate next step once the MVP has
+proven its value on a few hand-run sessions.
+
+### 10c. Order of operations when we get there
+
+1. Land Batches API in `analyze.py` (foreground command, manual run).
+2. Land it in `patterns.py`.
+3. Build the cron entry point that wraps both.
+4. Add a basic `out/cron-status.json` so the next run knows where the
+   last one stopped.
+
+Resist building the cron entry point before steps 1-2 are solid. A cron
+job that calls broken plumbing creates silent failures that pile up for
+days before anyone notices.
