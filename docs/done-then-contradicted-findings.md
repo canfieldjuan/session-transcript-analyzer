@@ -23,24 +23,30 @@ operator/reviewer contradiction + an observable cost.
 
 ## Result
 
-6 records:
+8 records:
 
 | Classification | Count | Windows |
 |---|---:|---|
-| confirmed | 5 | 272-274, 308-309, 311-317, 317-318, 320-327 |
+| confirmed | 6 | 272-274, 308-309, 311-317, 317-318, 320-327, 320-342 |
+| could_not_determine | 1 | 304-305 (Pro/#1993 framing = a mid-task attribution fix) |
 | contradicted | 1 | 276-279 (#1961 red = a legitimate CI re-fire) |
+
+Completeness: found via a systematic reverse scan of all 19 operator-contradiction turns --
+9 already mined, 6 false matches (compaction resumes, a copy task, the seo skill, the pivot,
+session-start), 4 genuine new -> 1 confirmed + 1 could_not_determine. The 320-342 loop
+subsumes the 320-327 MCP instance as one of its five rounds.
 
 Missing-step tags (confirmed):
 
 | tag | count |
 |---|---:|
+| `missing_source_trace` | 4 |
 | `patch_completion_not_verification` | 2 |
-| `missing_source_trace` | 2 |
+| `no_round2_stop_rule` | 2 |
 | `missing_fail_closed_proof` | 1 |
 | `summary_overclaim` | 1 |
-| `no_round2_stop_rule` | 1 |
 
-Cost split: `both` 2, `waste` 3, `none` 1.
+Cost split: `both` 2, `waste` 4, `none` 2.
 
 ## Headline finding
 
@@ -54,6 +60,11 @@ Every confirmed closure rested on the **cheaper proxy** instead of the source of
 
 Unifying condition: a proxy (a green gate / a config action / a file-read / one reproduction /
 a typed number) was substituted for the source-of-truth check.
+
+With the draft-loop added, `missing_source_trace` is now the dominant missing step (4 of 6
+confirmed): reading the path/idea but not the consuming code -- the parser, the emitted
+constant name, the real ratio. It is the same class the operator flagged ~3x and the direct
+cause of the PR-reconstruction protocol.
 
 ## Confirmed sequences
 
@@ -92,12 +103,30 @@ operator ep323 -> ep327. repair: read the three parsers directly, keep the audit
 rounds 3. cost waste (potential: would have broken the MCP audits if shipped).
 tags: `missing_source_trace`.
 
+### CLAUDE.md draft iterated by prose (window 320-342)
+claim: repeatedly called the restructure draft "settled" / correct across revisions.
+used: the coherence of the draft's IDEA (prose reasoning). missing: the exact shape surviving
+the CONSUMERS (audit parsers ep323; real citation lines ep327; actual emitted constant names
+`DEFLECTION_REPORT_*_SNAPSHOT_SAFE_FIELDS`, not `DEFLECTION_SNAPSHOT_*`, ep342). contradiction:
+operator across FIVE turns (ep323, 327, 333 "do not say settled until it survives the
+consumers", 338 "stop iterating by prose -- pin the base ref/SHA", 342). repair: only after
+ep338's explicit stop-rule did I pin the SHA + reconstruct consumers; the early rounds patched
+prose, the stop-rule was operator-imposed. rounds 5. cost waste.
+tags: `no_round2_stop_rule`, `missing_source_trace`. (This loop is why the repo now carries
+the PR-reconstruction protocol.)
+
 ## Non-confirmed
 
 ### ep276 "1961 is red" -- contradicted
 A legitimate CI re-fire (live-reconciliation flips on a new push / Codex re-review), not a
 false "done." I acknowledged it immediately and engaged the reconcile loop; merged only on
 verified-green when directed (ep279). No premature closure -> not forced into a confirmed.
+
+### ep304-305 "portal 5.5, not codex" -- could_not_determine
+Operator corrected the reviewer attribution (the 5.5 portal, not Codex) and #1993's exact
+framing mid-task. A contradiction exists, but there is no declared-done-then-contradicted
+chain or premature-closure cost -- it is adversarial input + a minor attribution fix, not a
+closure. Recorded for completeness; not forced into a confirmed.
 
 ## Preservation notes
 
