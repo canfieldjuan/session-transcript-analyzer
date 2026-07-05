@@ -4,6 +4,7 @@ Run: python -m pytest test_detect.py -q   (or: python test_detect.py)
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -104,6 +105,19 @@ def test_benign_exit1_without_error_signature_not_flagged():
                     _call(result_status="ok")],
     )
     assert "bash_error_ignored" not in detect.detect(ep)
+
+
+# --- snapshot-and-pin ------------------------------------------------------
+
+def test_to_json_pins_source_and_preserves_episodes_contract():
+    js = parse.to_json([], Path("x.jsonl"),
+                       {"source_sha256": "abc123", "source_bytes": 9,
+                        "source_records": 0, "snapshot": "source.snapshot.jsonl"})
+    d = json.loads(js)
+    assert d["source_sha256"] == "abc123"            # pin recorded
+    assert d["snapshot"] == "source.snapshot.jsonl"
+    assert d["episodes"] == []                        # consumer contract intact
+    assert d["source"] == "x.jsonl"                   # existing keys preserved
 
 
 if __name__ == "__main__":

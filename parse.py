@@ -15,6 +15,7 @@ No LLM calls. All local. Free.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -426,10 +427,14 @@ def render_md(episodes: list[Episode], session_path: Path) -> str:
 SOURCE_FORMAT = "claude_code_jsonl"
 
 
-def to_json(episodes: list[Episode], session_path: Path) -> str:
+def to_json(episodes: list[Episode], session_path: Path,
+            source_meta: dict | None = None) -> str:
     payload = {
         "source_format": SOURCE_FORMAT,
         "source": str(session_path),
+        # pin: a run is reproducible only against this exact input (see main).
+        # Additive top-level keys; consumers read only ["episodes"] + ["index"].
+        **(source_meta or {}),
         "episode_count": len(episodes),
         "episodes": [
             {**asdict(ep), "tool_calls": [asdict(tc) for tc in ep.tool_calls]}
@@ -464,9 +469,24 @@ def main() -> None:
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Snapshot-and-pin: copy the EXACT input beside the outputs and record its
+    # sha256, so a run is reproducible against a named input rather than a
+    # live-growing session file. Any downstream count is meaningful only vs
+    # this pin.
+    raw = session_path.read_bytes()
+    snapshot_path = out_dir / "source.snapshot.jsonl"
+    snapshot_path.write_bytes(raw)
+    source_meta = {
+        "source_sha256": hashlib.sha256(raw).hexdigest(),
+        "source_bytes": len(raw),
+        "source_records": len(records),
+        "snapshot": snapshot_path.name,
+    }
+
     json_path = out_dir / "episodes.json"
     md_path = out_dir / "episodes.md"
-    json_path.write_text(to_json(episodes, session_path))
+    json_path.write_text(to_json(episodes, session_path, source_meta))
     md_path.write_text(render_md(episodes, session_path))
 
     total = sum(ep.user_tokens_est + ep.assistant_tokens_est for ep in episodes)
@@ -474,6 +494,8 @@ def main() -> None:
     print()
     print(f"Wrote {json_path}")
     print(f"Wrote {md_path}")
+    print(f"  input pinned: sha256 {source_meta['source_sha256'][:16]}... "
+          f"({source_meta['source_records']} records) -> {snapshot_path}")
     print()
     print(f"  total est. tokens (trimmed view): {total:,}")
     print(f"  episodes with tool error:         {err_count}")
