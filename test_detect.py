@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import analyze  # noqa: E402
 import detect  # noqa: E402
 import parse  # noqa: E402
 
@@ -118,6 +119,29 @@ def test_to_json_pins_source_and_preserves_episodes_contract():
     assert d["snapshot"] == "source.snapshot.jsonl"
     assert d["episodes"] == []                        # consumer contract intact
     assert d["source"] == "x.jsonl"                   # existing keys preserved
+
+
+# --- render surfaces the verify signal to the model (truncation-proof) -----
+
+def test_render_episode_surfaces_verify_signal_absent_from_tail():
+    """The model must see the full-output verify signal even when the trimmed
+    tail dropped it -- the ep#20 blindspot."""
+    ep = {
+        "index": 20, "timestamp": "t", "gap_seconds_from_prev": None,
+        "tool_count": 1, "has_tool_error": False,
+        "user_tokens_est": 5, "assistant_tokens_est": 5,
+        "user_text": "poll", "assistant_text": "CI green, merge CLEAN",
+        "tool_calls": [{
+            "name": "Bash", "input_summary": "gh pr view", "raw_input": {},
+            "result_status": "ok", "result_lines": 8, "result_bytes": 300,
+            "result_tail": "unresolved: 0",              # tail lacks CLEAN
+            "result_has_verify": True, "result_verify_match": "CLEAN",
+        }],
+    }
+    rendered = analyze.render_episode(ep)
+    assert "verify_signal" in rendered      # the signal is shown
+    assert "CLEAN" in rendered               # the truncated-away proof reaches the model
+    assert "unresolved: 0" in rendered       # tail still shown too
 
 
 if __name__ == "__main__":

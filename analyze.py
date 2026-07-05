@@ -170,6 +170,14 @@ def render_episode(ep: dict) -> str:
                 f"- {tc['name']}({tc['input_summary']}) -> {status} "
                 f"[{tc['result_lines']} lines, {tc['result_bytes']} B]"
             )
+            # Truncation-proof verify signal: matched on the FULL tool output
+            # before result_tail was trimmed, so the model does not have to
+            # infer verification from a tail that may have dropped the proof.
+            if tc.get("result_has_verify"):
+                lines.append(
+                    f"  verify_signal (matched in full output, may be absent "
+                    f"from the trimmed tail below): {tc.get('result_verify_match', '')}"
+                )
             if tc.get("result_tail"):
                 lines.append("  tail:")
                 for tl in tc["result_tail"].splitlines():
