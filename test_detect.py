@@ -24,7 +24,10 @@ def _call(**kw):
 
 def _ep(**kw):
     base = {"index": 5, "user_text": "some directive here", "assistant_text": "",
-            "tool_calls": [], "tool_count": 0, "user_tokens_est": 50}
+            "tool_calls": [], "tool_count": 0, "user_tokens_est": 50,
+            # also read by render_episode (inert for detect):
+            "timestamp": "t", "gap_seconds_from_prev": None,
+            "has_tool_error": False, "assistant_tokens_est": 5}
     base.update(kw)
     base["tool_count"] = base.get("tool_count") or len(base["tool_calls"])
     return base
@@ -218,6 +221,26 @@ def test_render_episode_surfaces_verify_signal_absent_from_tail():
     assert "verify_signal" in rendered      # the signal is shown
     assert "CLEAN" in rendered               # the truncated-away proof reaches the model
     assert "unresolved: 0" in rendered       # tail still shown too
+
+
+# --- render surfaces the normalized executed command to the model ----------
+
+def test_render_shows_normalized_executed_command():
+    """render_episode surfaces the executed command normalized exactly as
+    detect sees it: a --force inside a heredoc body is stripped to a marker
+    (not shown as executed); an executed --force outside a body is verbatim.
+    Model-side mirror of test_force_inside_heredoc_body_not_flagged."""
+    quoted = _ep(tool_calls=[_call(raw_input={"command":
+        "cd /x\ncat > r.json <<'EOF'\n"
+        '{"c": "never git push --force here"}\n'
+        "EOF\ngit status"})])
+    r = analyze.render_episode(quoted)
+    assert "command (executed" in r        # the new line is present
+    assert "<<HEREDOC>>" in r               # quoted body collapsed to a marker
+    assert "--force" not in r               # quoted --force is NOT an executed token
+
+    executed = _ep(tool_calls=[_call(raw_input={"command": "cd /x\ngit push --force-with-lease"})])
+    assert "--force-with-lease" in analyze.render_episode(executed)
 
 
 if __name__ == "__main__":

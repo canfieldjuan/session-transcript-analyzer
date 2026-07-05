@@ -26,6 +26,13 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+# Reuse detect's own command extraction (_cmd_of) + stripping helper so the
+# model's command view goes through the SAME normalization the mechanical layer
+# applies -- one shared helper, no divergent second copy. Not necessarily the
+# same string: detect's bypass scan runs the helper over a wider blob
+# (input_summary + raw_input), while here it runs over just the command.
+from detect import _cmd_of, _strip_quoted_bodies
+
 try:
     from anthropic import Anthropic  # type: ignore
 except ImportError:
@@ -170,6 +177,21 @@ def render_episode(ep: dict) -> str:
                 f"- {tc['name']}({tc['input_summary']}) -> {status} "
                 f"[{tc['result_lines']} lines, {tc['result_bytes']} B]"
             )
+            # Executed command run through detect.py's OWN stripping helper, so
+            # quoted bodies (heredoc / python -c / long-quoted spans) collapse to
+            # markers -- a --force inside a review body is not read as executed.
+            # Same normalization the mechanical layer applies: an aligned view,
+            # not a byte-identical string (detect's bypass scan strips a wider
+            # blob). input_summary above is truncated + unnormalized.
+            cmd = _cmd_of(tc)
+            if cmd:
+                # newlines -> visible ` \n ` markers so the command stays ONE
+                # line (multi-line would break the markdown). Presentation only:
+                # same stripping-helper output, flattened for one-line display.
+                shown = _strip_quoted_bodies(cmd).replace("\n", " \\n ")
+                lines.append(
+                    f"  command (executed, quoted bodies stripped): {shown}"
+                )
             # Truncation-proof verify signal: matched on the FULL tool output
             # before result_tail was trimmed, so the model does not have to
             # infer verification from a tail that may have dropped the proof.
