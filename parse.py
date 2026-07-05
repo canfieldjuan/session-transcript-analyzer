@@ -158,6 +158,16 @@ def extract_tool_results(content: Any) -> list[dict]:
 
 # ---------- episode model ----------
 
+# Success/verification signals in TOOL OUTPUT, matched on the FULL result
+# text (not the truncated tail). These are the signals that count as real
+# proof; assistant prose is deliberately excluded elsewhere.
+VERIFY_SIGNAL_RE = re.compile(
+    r"\bpassed\b|\d+ passed|exit 0|OK:|PASS\b|\bSUCCESS\b|MERGED|Successfully|"
+    r"\bclean\b|0 failed",
+    re.I,
+)
+
+
 @dataclass
 class ToolCall:
     name: str
@@ -167,6 +177,13 @@ class ToolCall:
     result_lines: int
     result_bytes: int
     result_tail: str         # last ~20 lines if error, else ""
+    # Computed on the FULL result text before truncation, so a verify-signal
+    # early in a long output is not lost to result_tail. Lets detect.py judge
+    # "was there tool proof" without depending on the tail. (default keeps the
+    # missing-result constructor below valid.)
+    result_has_verify: bool = False
+    result_verify_match: str = ""   # the matched signal text, so a verified
+                                    # (not-flagged) call is self-explaining too
 
 
 @dataclass
@@ -247,6 +264,10 @@ def build_episodes(records: list[dict]) -> list[Episode]:
             txt = tr["content"] or ""
             tc.result_bytes = len(txt)
             tc.result_lines = txt.count("\n") + (1 if txt else 0)
+            # full-text verify check, before any truncation
+            _vm = VERIFY_SIGNAL_RE.search(txt)
+            tc.result_has_verify = bool(_vm)
+            tc.result_verify_match = _vm.group(0) if _vm else ""
             if tr["is_error"]:
                 tc.result_status = "error"
                 # Keep a generous tail for errors (~20 lines, capped at 800B).
