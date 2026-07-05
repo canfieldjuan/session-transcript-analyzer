@@ -20,6 +20,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -41,6 +43,24 @@ def _require_anthropic():
 
 MODEL = "claude-sonnet-4-6"
 MAX_OUTPUT_TOKENS = 2000
+
+# Strict output schema for the codex backend (--output-schema). Mirrors the
+# SYSTEM_PROMPT SCHEMA. OpenAI strict mode requires EVERY property in required.
+ANALYSIS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "episode_index": {"type": "integer"},
+        "timestamp": {"type": "string"},
+        "what_user_asked": {"type": "string"},
+        "what_model_did": {"type": "string"},
+        "did_model_verify": {"type": "string", "enum": ["yes", "no", "unknown"]},
+        "risk_flags": {"type": "array", "items": {"type": "string"}},
+        "notes": {"type": "string"},
+    },
+    "required": ["episode_index", "timestamp", "what_user_asked", "what_model_did",
+                 "did_model_verify", "risk_flags", "notes"],
+    "additionalProperties": False,
+}
 
 
 SYSTEM_PROMPT = """You are a forensic analyst of one coding-session episode.
@@ -215,6 +235,31 @@ def analyze_one(client: Anthropic, ep: dict) -> tuple[dict, dict]:
     return parsed, usage
 
 
+def analyze_one_codex(ep: dict, schema_path: Path) -> tuple[dict, dict]:
+    """One headless `codex exec` call. Same (parsed_json, usage) contract as
+    analyze_one, but runs under the codex CLI -- an independent model, off the
+    Anthropic API and the Claude weekly limit. --output-schema constrains the
+    final response to ANALYSIS_SCHEMA; extract_first_json locates it in stdout.
+    read-only sandbox: the task is pure text, no tool use."""
+    prompt = SYSTEM_PROMPT + "\n\nEPISODE (analyze this one):\n" + render_episode(ep)
+    proc = subprocess.run(
+        ["codex", "exec", "--skip-git-repo-check", "--ephemeral",
+         "-s", "read-only", "--output-schema", str(schema_path), "-"],
+        input=prompt, capture_output=True, text=True, timeout=300,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"codex exec exit {proc.returncode}: {(proc.stderr or proc.stdout)[-200:]}"
+        )
+    parsed = extract_first_json(proc.stdout)
+    m = re.search(r"tokens used\s+([\d,]+)", proc.stdout)
+    # codex runs on the codex plan, not Anthropic tokens; keep the loop's
+    # input/output_tokens at 0 and record the codex token count separately.
+    usage = {"input_tokens": 0, "output_tokens": 0,
+             "codex_tokens": int(m.group(1).replace(",", "")) if m else 0}
+    return parsed, usage
+
+
 def pick_indices(episodes: list[dict], args: argparse.Namespace) -> list[int]:
     if args.indices:
         wanted = [int(x) for x in args.indices.split(",") if x.strip()]
@@ -298,6 +343,13 @@ def main() -> None:
     )
     ap.add_argument("--out-dir", default="out", help="Output directory (default: out/)")
     ap.add_argument(
+        "--backend",
+        choices=["anthropic", "codex"],
+        default="anthropic",
+        help="Model backend: anthropic (API, needs ANTHROPIC_API_KEY) or "
+             "codex (headless codex CLI, off-API, independent judge).",
+    )
+    ap.add_argument(
         "--first",
         type=int,
         default=10,
@@ -362,11 +414,17 @@ def main() -> None:
         print("Nothing to do.")
         return
 
-    _require_anthropic()
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("ANTHROPIC_API_KEY not set. export it and re-run.", file=sys.stderr)
-        sys.exit(1)
-    client = Anthropic()
+    schema_path = None
+    if args.backend == "anthropic":
+        _require_anthropic()
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            print("ANTHROPIC_API_KEY not set. export it and re-run.", file=sys.stderr)
+            sys.exit(1)
+        client = Anthropic()
+    else:  # codex: no API client; write the strict schema for --output-schema
+        client = None
+        schema_path = out_dir / "analysis-schema.json"
+        schema_path.write_text(json.dumps(ANALYSIS_SCHEMA, indent=1))
 
     prior_results: list[dict] = []
     if out_path.exists():
@@ -393,7 +451,10 @@ def main() -> None:
                 print(f"  [{n}/{len(indices)}] ep {idx}: not found, skipping")
                 continue
             try:
-                rec, usage = analyze_one(client, ep)
+                rec, usage = (
+                    analyze_one(client, ep) if args.backend == "anthropic"
+                    else analyze_one_codex(ep, schema_path)
+                )
             except Exception as e:
                 print(
                     f"  [{n}/{len(indices)}] ep {idx}: FAILED "
