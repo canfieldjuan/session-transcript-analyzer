@@ -61,8 +61,10 @@ prevents the whole loop.
 
 ## The reflexive proof (it is live, not historical)
 
-Three of these fired in the act of mining this very session: the hash mislabel (#1/#2),
-push-before-pull (#4), and the ep307 mis-seed (#1). The patterns are not in the past tense.
+Four of these fired in the act of mining this very session: the hash mislabel (#1/#2),
+push-before-pull (#4), the ep307 mis-seed (#1), and -- caught in review -- the step-3
+reconstruction asserting a jsonl row (ep178) it never read (#1, a summary-overclaim inside
+the overclaim-catcher). The patterns are not in the past tense.
 
 ## How we decide a mine is "done" (saturation protocol)
 
