@@ -19,6 +19,10 @@ below is a variant of skipping that step.
 
 ## The seven avoidable-rework patterns (ranked by rework cost)
 
+Count provenance: the pre-scan distillation named six; the seventh (pattern 7, review
+under-call) was surfaced by the residual finder angle (F) -- which is why the mine converged
+at seven, not six.
+
 1. **Verify the proxy, not the source of truth.** (dominant -- 4/6 of the last mine + H-x12
    + the hash mislabel this session + ep18/ep92). A green gate, a coherent idea, a file's
    existence, or a `print` stood in for the actual check.
@@ -74,6 +78,10 @@ A mine is dry only when:
   remain; they are instances of the 7 classes, not new classes.
 - **Name the residual:** every net has a blind spot. This one cannot catch silently self-caught
   errors, soft-signal contradictions, or non-acknowledgment semantic misses. Silence != zero.
+- **Reproducibility caveat:** the convergence verdict here is artifact-recorded from a one-off
+  angle scan over the pinned `episodes.json`, not a committed rerunnable proof. Re-derive it by
+  re-running the six angle scans over the pinned dataset; until a scan script is persisted, treat
+  the recorded verdict as evidence, not independent proof.
 
 ## Preservation notes
 
