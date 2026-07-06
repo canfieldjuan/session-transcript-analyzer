@@ -226,6 +226,56 @@ def test_render_doc_gates_null_on_adequacy():
     assert "not supported under this detected-positive sample" in powered
 
 
+# --- the factored fail-closed guards must FIRE (not just helpers return data) ------
+
+def test_check_pin_matching_is_not_stale():
+    assert fd.check_pin({"repo": "o/r", "atlas_head_sha": "abc"}, "o/r", "abc", False) is False
+
+
+def test_check_pin_stale_fails_closed():
+    try:
+        fd.check_pin({"repo": "o/r", "atlas_head_sha": "old"}, "o/r", "new", allow_stale=False)
+        raised = False
+    except SystemExit:
+        raised = True
+    assert raised, "a stale Tier-1 pin must fail closed (the cross-pin-membership guard)"
+
+
+def test_check_pin_stale_allowed_returns_true_no_raise():
+    # --allow-stale-pin: proceed, but RECORD stale=True so the confound is rendered
+    assert fd.check_pin({"repo": "o/r", "atlas_head_sha": "old"}, "o/r", "new",
+                        allow_stale=True) is True
+
+
+def test_require_complete_passes_when_no_drops():
+    fd.require_complete([], [])  # must not raise
+
+
+def test_require_complete_fails_closed_on_any_drop():
+    for pos, ctrl in ([9], []), ([], [9]), ([1], [2]):
+        try:
+            fd.require_complete(pos, ctrl)
+            raised = False
+        except SystemExit:
+            raised = True
+        assert raised, f"any known-merged drop must fail closed (pos={pos}, ctrl={ctrl})"
+
+
+def test_render_doc_stale_pin_warns_confound_not_validated():
+    rows = [{"feature": k, "n_pos": 40, "n_ctrl": 40, "median_pos": 1, "median_ctrl": 1,
+             "cliffs_delta": 0.0, "perm_p": 1.0, "significant": False,
+             "differentiates": False} for k in fl.MERGE_TIME_FEATURE_KEYS]
+    base = {"dataset": "out-x", "corpus": {"repo": "o/r", "query_date": "d",
+            "atlas_head_sha": "newhead12", "pr_range": [1, 2]}, "seed": 1, "control_size": 3,
+            "n_positive": 40, "n_control": 40, "control_pool": 40, "differentiators": [],
+            "adequate": True, "tier1_pin_head": "oldhead99"}
+    stale = fd.render_doc({**base, "stale_pin": True}, rows, [])
+    assert "CROSS-PIN CONFOUND IS PRESENT" in stale
+    assert "no cross-pin confound" not in stale     # must NOT claim clean validation
+    fresh = fd.render_doc({**base, "stale_pin": False}, rows, [])
+    assert "no cross-pin confound" in fresh
+
+
 if __name__ == "__main__":
     import traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

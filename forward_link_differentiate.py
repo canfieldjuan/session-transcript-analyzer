@@ -15,7 +15,8 @@ null and could mask a real effect.
 
 Extraction reuses forward_link.merge_time_features + fetch_pr_view VERBATIM --
 identical extraction for both classes is the validity of the contrast. Both
-classes are re-extracted fresh at one corpus pin (no cross-pin confound).
+classes are re-extracted fresh at one corpus pin (no cross-pin confound when the
+pin validation passes; a stale pin overridden by --allow-stale-pin carries it).
 
 Stats are pure-python (no scipy): Cliff's delta via ranks (fast) + a seeded
 permutation test on it.
@@ -225,6 +226,16 @@ def write_jsonl(path: Path, rows: list[dict], meta: dict) -> None:
 def render_doc(meta: dict, rows: list[dict], triples: list[dict]) -> str:
     pin = meta["corpus"]
     diff = [r for r in rows if r["differentiates"]]
+    # the pin/confound claim is DERIVED from meta["stale_pin"] -- it must never assert
+    # "validated / no confound" when the run overrode a stale pin.
+    if meta.get("stale_pin"):
+        pin_line = ("Corpus pin -- WARNING: STALE (`--allow-stale-pin`). The Tier-1 positive "
+                    f"membership is pinned to `{str(meta.get('tier1_pin_head'))[:9]}` while the "
+                    "control is from this run's head -- a CROSS-PIN CONFOUND IS PRESENT "
+                    "(positives fixed-forward since Tier 1 may leak into the control):")
+    else:
+        pin_line = ("Corpus pin (both classes extracted at this pin; the Tier-1 positive "
+                    "membership is validated to share it -- no cross-pin confound):")
     lines = [
         "# Forward-Link Differentiation -- Layer 3 (base-rate contrast)",
         "",
@@ -234,8 +245,7 @@ def render_doc(meta: dict, rows: list[dict], triples: list[dict]) -> str:
         f"- `{meta['dataset']}/forward-links-differentiation.jsonl`",
         f"- positive class from `{meta['dataset']}/forward-links.jsonl` (Tier 1)",
         "",
-        "Corpus pin (both classes extracted at this pin; the Tier-1 positive membership is "
-        "validated to share it -- no cross-pin confound):",
+        pin_line,
         f"- repo: `{pin['repo']}`  query date: `{pin['query_date']}`",
         f"- Atlas `main` HEAD sha: `{pin['atlas_head_sha']}`",
         f"- seed: `{meta['seed']}`  control-size: `{meta['control_size']}`  "
@@ -320,19 +330,50 @@ def render_doc(meta: dict, rows: list[dict], triples: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+# --- fail-closed guards (factored out of main so the FIRE condition is testable) ------
+
+def check_pin(tier1_pin: dict, repo: str, head: str, allow_stale: bool) -> bool:
+    """Return whether the Tier-1 pin is stale vs (repo, head). Raise SystemExit if stale and
+    not allowed -- the cross-pin-membership guard, factored out of main() so the FIRE
+    condition is unit-testable (not merely that a helper returns a pin)."""
+    stale = (tier1_pin.get("repo") != repo
+             or tier1_pin.get("atlas_head_sha") != head)
+    if stale and not allow_stale:
+        raise SystemExit(
+            f"Tier-1 artifact pinned to {tier1_pin.get('repo')}@"
+            f"{str(tier1_pin.get('atlas_head_sha'))[:9]}, but this run is {repo}@{head[:9]}. "
+            "Positive membership and control would be from different corpus states (stale "
+            "positives leak into control). Re-run forward_link.py so both share one pin, or "
+            "pass --allow-stale-pin to proceed with the confound recorded.")
+    return stale
+
+
+def require_complete(pos_dropped: list, ctrl_dropped: list) -> None:
+    """Raise SystemExit if any KNOWN-merged PR failed to re-fetch (positives are Tier-1
+    confirmed, controls are gh --state merged, so a drop is a gh error, not a skip).
+    Factored out of main() so the FIRE condition is unit-testable."""
+    if pos_dropped or ctrl_dropped:
+        raise SystemExit(
+            f"re-fetch failed for known-merged PRs (positives={pos_dropped}, "
+            f"controls={ctrl_dropped}); a drop here is a gh error, not a skip. Retry.")
+
+
 # --- main -------------------------------------------------------------------
 
-def _dry_run(repo, out_dir, control_size, seed):
+def _dry_run(repo, out_dir, control_size, seed, merged_limit):
     print("DRY RUN -- forward_link_differentiate.py Layer 3 (no execution)")
     print(f"  repo (read-only): {repo} | out-dir: {out_dir} (gitignored jsonl)")
-    print(f"  control-size: {control_size} | seed: {seed} | perm-iters: {PERM_ITERS}")
+    print(f"  control-size: {control_size} | seed: {seed} | perm-iters: {PERM_ITERS} | "
+          f"merged-limit: {merged_limit} | MIN_SAMPLE: {MIN_SAMPLE}")
     print("  steps:")
-    print(f"    1. read distinct confirmed earlier_pr from {out_dir}/forward-links.jsonl")
-    print(f"    2. gh pr list --repo {repo} --state merged --json number --limit 2000")
+    print(f"    1. read confirmed earlier_pr + corpus pin from {out_dir}/forward-links.jsonl")
+    print("    2. check_pin: Tier-1 pin == current head (SystemExit on stale unless --allow-stale-pin)")
+    print(f"    3. gh pr list --repo {repo} --state merged --json number --limit {merged_limit} "
+          "(SystemExit if the cap is hit)")
     print("       -> seeded control sample in the positive range, excluding positives")
-    print("    3. gh pr view <n> for positive + control (reuse forward_link extractor)")
-    print("    4. per feature: Cliff's delta + seeded permutation test -> differentiates?")
-    print(f"    5. write {out_dir}/forward-links-differentiation.jsonl + "
+    print("    4. gh pr view <n> for positive + control; require_complete -> SystemExit on any drop")
+    print("    5. per feature: Cliff's delta + seeded permutation test -> differentiates?")
+    print(f"    6. write {out_dir}/forward-links-differentiation.jsonl + "
           "docs/forward-link-differentiation.md")
 
 
@@ -350,7 +391,7 @@ def main() -> None:
     args = ap.parse_args()
 
     if args.dry_run:
-        _dry_run(args.repo, args.out_dir, args.control_size, args.seed)
+        _dry_run(args.repo, args.out_dir, args.control_size, args.seed, args.merged_limit)
         return
 
     out_dir = Path(args.out_dir)
@@ -358,30 +399,13 @@ def main() -> None:
 
     query_date = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
     head_sha = fl.gh_head_sha(args.repo)
-    # cross-pin MEMBERSHIP guard: positives come from the Tier-1 artifact; the control comes
-    # from the CURRENT Atlas state. If they differ, PRs fixed-forward since Tier-1 ran are
-    # merged-and-in-range now but absent from the positive set -> they leak into the control
-    # and bias toward null. Require one shared pin (or an explicit, recorded override).
-    stale = (tier1_pin.get("repo") != args.repo
-             or tier1_pin.get("atlas_head_sha") != head_sha)
-    if stale and not args.allow_stale_pin:
-        raise SystemExit(
-            f"Tier-1 artifact pinned to {tier1_pin.get('repo')}@"
-            f"{str(tier1_pin.get('atlas_head_sha'))[:9]}, but this run is {args.repo}@"
-            f"{head_sha[:9]}. Positive membership and control would be from different corpus "
-            "states (stale positives leak into control). Re-run forward_link.py so both share "
-            "one pin, or pass --allow-stale-pin to proceed with the confound recorded.")
+    stale = check_pin(tier1_pin, args.repo, head_sha, args.allow_stale_pin)
 
     control, pool = sample_control(args.repo, positive, args.seed, args.control_size,
                                    args.merged_limit)
     pos_feats, pos_dropped = extract_features(args.repo, positive)
     ctrl_feats, ctrl_dropped = extract_features(args.repo, control)
-    if pos_dropped or ctrl_dropped:
-        # inputs are KNOWN-merged (Tier-1 confirmed / gh --state merged); a drop is a gh
-        # fetch error, not a legitimate skip. Do not publish a null on a biased subset.
-        raise SystemExit(
-            f"re-fetch failed for known-merged PRs (positives={pos_dropped}, "
-            f"controls={ctrl_dropped}); a drop here is a gh error, not a skip. Retry.")
+    require_complete(pos_dropped, ctrl_dropped)
     rows = contrast(pos_feats, ctrl_feats, args.seed)
     triples = [draft_triple(r) for r in rows if r["differentiates"]]
 
@@ -397,7 +421,8 @@ def main() -> None:
         "tier1_pin_head": tier1_pin.get("atlas_head_sha"), "stale_pin": stale,
         "positive_universe": "tier1-detected (search-seeded, not exhaustive)",
         "control_label": "not detected fixed-forward (may contain undetected positives)",
-        "differentiators": [r["feature"] for r in rows if r["differentiates"]],
+        "differentiators": ([r["feature"] for r in rows if r["differentiates"]]
+                            if adequate else []),
         "null_result": adequate and not any(r["differentiates"] for r in rows),
     }
 

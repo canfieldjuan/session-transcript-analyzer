@@ -10,23 +10,24 @@ everywhere.
 
 ## What it does
 `forward_link_differentiate.py` reads the positive set (distinct confirmed `earlier_pr` from
-the Tier-1 jsonl), samples a control of merged PRs in the same PR-range that were NOT fixed
-forward (seeded), re-extracts BOTH classes fresh at one corpus pin through the IDENTICAL
+the Tier-1 jsonl), samples a control of merged PRs in the same PR-range that were NOT DETECTED
+fixed-forward by Tier 1 (seeded), re-extracts BOTH classes fresh at one corpus pin through the IDENTICAL
 `forward_link.merge_time_features` (reused verbatim -- the symmetry is the contrast's
 validity), and per feature computes Cliff's delta (effect size) + a seeded permutation test.
 A feature `differentiates` iff `|delta| >= 0.33` AND `perm_p < 0.005` (Bonferroni 0.05/10).
 Pure-python stats, no new deps.
 
 ## Result
-**NO DIFFERENTIATING FEATURE DETECTED** (127 detected-fixed-forward vs 300 control, one
-validated corpus pin): no
-merge-time feature separates the classes at the stated thresholds -- "not supported under this
-detected-positive sample", NOT a clean refutation. The control is "NOT DETECTED fixed-forward"
-by Tier 1 (which is search-seeded, not exhaustive), so it may contain undetected positives that
-bias the contrast toward null. Three **near-misses** (`additions`, `hours_to_merge`,
-`test_lines_changed`) are statistically significant but have effect sizes below the actionable
-bar -- real but weak, not gate-worthy. **No CI gate is warranted on this evidence**; do not read
-it as proof no signal exists.
+**NO DIFFERENTIATING FEATURE DETECTED** -- no merge-time feature separates the classes at the
+stated thresholds. This is "not supported under this **detected**-positive sample", NOT a clean
+refutation: the control is "not detected fixed-forward" by Tier 1 (search-seeded, not
+exhaustive), so undetected positives may leak in and bias toward null. Some features are
+statistically significant but below the actionable effect-size bar (near-misses) -- weak, not
+gate-worthy. **No CI gate is warranted on this evidence.**
+
+Exact counts, per-feature Cliff's delta / p, the near-miss list, and the corpus pin live in the
+generated report `docs/forward-link-differentiation.md` -- the single source of truth. This plan
+deliberately does not restate them, so it cannot drift from the run.
 
 ## Intentional
 - Effect size (Cliff's delta) is the primary gate, not just significance -- large n makes tiny
