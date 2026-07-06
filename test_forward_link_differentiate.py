@@ -96,16 +96,19 @@ def test_contrast_drops_none_and_counts_it():
 
 # --- positive-set reader ----------------------------------------------------
 
-def test_read_positive_prs_distinct_confirmed():
+def test_read_positive_prs_distinct_confirmed_and_pin():
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "forward-links.jsonl"
         p.write_text("\n".join(json.dumps(r) for r in [
-            {"earlier_pr": 100, "classification": "confirmed"},
+            {"earlier_pr": 100, "classification": "confirmed",
+             "corpus": {"repo": "o/r", "atlas_head_sha": "deadbeef"}},
             {"earlier_pr": 100, "classification": "confirmed"},  # dup -> distinct
             {"earlier_pr": 200, "classification": "confirmed"},
             {"earlier_pr": 300, "classification": "could_not_determine"},  # excluded
         ]) + "\n")
-        assert fd.read_positive_prs(p) == [100, 200]
+        prs, pin = fd.read_positive_prs(p)
+        assert prs == [100, 200]
+        assert pin["atlas_head_sha"] == "deadbeef"  # pin returned for the stale-check
 
 
 def test_read_positive_prs_missing_file_exits():
@@ -136,7 +139,7 @@ def test_sample_control_in_range_excludes_positives_seeded():
         fl._gh_json = orig
 
 
-def test_extract_features_reuses_extractor_skips_unmerged():
+def test_extract_features_reports_attrition_not_silent():
     def fake_view(repo, n):
         if n % 2 == 0:
             return {"number": n, "additions": 5, "deletions": 1, "changedFiles": 1,
@@ -144,12 +147,13 @@ def test_extract_features_reuses_extractor_skips_unmerged():
                     "reviews": [], "comments": [],
                     "createdAt": "2026-01-01T00:00:00Z",
                     "mergedAt": "2026-01-01T01:00:00Z", "state": "MERGED"}
-        return {"number": n, "mergedAt": None, "state": "OPEN"}  # unmerged -> skip
+        return {"number": n, "mergedAt": None, "state": "OPEN"}  # unexpected drop
     orig = fl.fetch_pr_view
     fl.fetch_pr_view = fake_view
     try:
-        feats = fd.extract_features("o/r", [2, 3, 4])
-        assert set(feats) == {2, 4}                       # odd (unmerged) skipped
+        feats, dropped = fd.extract_features("o/r", [2, 3, 4])
+        assert set(feats) == {2, 4}                       # the merged ones extracted
+        assert dropped == [3]                             # attrition surfaced, NOT silent
         assert set(feats[2]) == set(fl.MERGE_TIME_FEATURE_KEYS)  # identical extractor
     finally:
         fl.fetch_pr_view = orig

@@ -103,12 +103,14 @@ def differentiates(delta: float, p: float) -> bool:
 
 # --- positive set + control (gh boundary is isolated in forward_link) -------
 
-def read_positive_prs(jsonl_path: Path) -> list[int]:
-    """Distinct earlier_pr on `confirmed` records = the fixed-forward set."""
+def read_positive_prs(jsonl_path: Path) -> tuple[list[int], dict]:
+    """Distinct earlier_pr on `confirmed` records = the fixed-forward set, plus the
+    Tier-1 corpus pin so the caller can reject a stale artifact."""
     if not jsonl_path.exists():
         raise SystemExit(
             f"{jsonl_path} not found -- run forward_link.py first (Tier 1).")
     pos: set[int] = set()
+    pin: dict = {}
     for i, line in enumerate(jsonl_path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
             continue
@@ -119,11 +121,13 @@ def read_positive_prs(jsonl_path: Path) -> list[int]:
             # silently shrink the positive set into a clean-looking null.
             raise SystemExit(f"{jsonl_path}:{i} malformed JSON in the Tier-1 artifact "
                              f"({e}); refusing to run on partial evidence.")
+        if not pin and isinstance(r.get("corpus"), dict):
+            pin = r["corpus"]
         if r.get("classification") == "confirmed" and r.get("earlier_pr") is not None:
             pos.add(r["earlier_pr"])
     if not pos:
         raise SystemExit("no confirmed forward-links in the Tier-1 artifact.")
-    return sorted(pos)
+    return sorted(pos), pin
 
 
 def sample_control(repo: str, positive: list[int], seed: int,
@@ -148,16 +152,20 @@ def sample_control(repo: str, positive: list[int], seed: int,
     return sorted(rng.sample(pool, k)), len(pool)
 
 
-def extract_features(repo: str, pr_numbers: list[int]) -> dict[int, dict]:
-    """Reuse forward_link's extractor VERBATIM (identical extraction is the
-    contrast's validity). Skips non-PR/unmerged, mirroring Tier-1's confirmed gate."""
+def extract_features(repo: str, pr_numbers: list[int]) -> tuple[dict[int, dict], list[int]]:
+    """Reuse forward_link's extractor VERBATIM (identical extraction is the contrast's
+    validity). Inputs are KNOWN-merged PRs (Tier-1 confirmed positives / gh --state merged
+    controls), so a None/unmerged view is an UNEXPECTED fetch failure, not a legitimate
+    skip -- return it as attrition for the caller to fail loud on (no silent bias)."""
     out: dict[int, dict] = {}
+    dropped: list[int] = []
     for n in pr_numbers:
         v = fl.fetch_pr_view(repo, n)
         if v is None or not v.get("mergedAt"):
+            dropped.append(n)
             continue
         out[n] = fl.merge_time_features(v)
-    return out
+    return out, dropped
 
 
 # --- contrast + triple draft ------------------------------------------------
@@ -226,13 +234,14 @@ def render_doc(meta: dict, rows: list[dict], triples: list[dict]) -> str:
         f"- `{meta['dataset']}/forward-links-differentiation.jsonl`",
         f"- positive class from `{meta['dataset']}/forward-links.jsonl` (Tier 1)",
         "",
-        "Corpus pin (both classes re-extracted fresh at this pin -- no cross-pin confound):",
+        "Corpus pin (both classes extracted at this pin; the Tier-1 positive membership is "
+        "validated to share it -- no cross-pin confound):",
         f"- repo: `{pin['repo']}`  query date: `{pin['query_date']}`",
         f"- Atlas `main` HEAD sha: `{pin['atlas_head_sha']}`",
         f"- seed: `{meta['seed']}`  control-size: `{meta['control_size']}`  "
         f"perm-iters: `{PERM_ITERS}`",
-        f"- positive PRs (fixed-forward): {meta['n_positive']}  |  "
-        f"control PRs (not fixed-forward): {meta['n_control']} "
+        f"- positive PRs (detected fixed-forward): {meta['n_positive']}  |  "
+        f"control PRs (NOT detected fixed-forward): {meta['n_control']} "
         f"(pool {meta['control_pool']}, PR-range {pin['pr_range'][0]}-{pin['pr_range'][1]})",
         "",
         "## Method",
@@ -335,6 +344,8 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
     ap.add_argument("--merged-limit", type=int, default=DEFAULT_MERGED_LIMIT,
                     help="max merged PRs to fetch; fail loud if hit (recency-truncation guard)")
+    ap.add_argument("--allow-stale-pin", action="store_true",
+                    help="proceed even if the Tier-1 pin != current Atlas head (records the confound)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -343,14 +354,34 @@ def main() -> None:
         return
 
     out_dir = Path(args.out_dir)
-    positive = read_positive_prs(out_dir / "forward-links.jsonl")
-    control, pool = sample_control(args.repo, positive, args.seed, args.control_size,
-                                   args.merged_limit)
+    positive, tier1_pin = read_positive_prs(out_dir / "forward-links.jsonl")
 
     query_date = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
-    head_sha = fl.gh_head_sha(args.repo)  # pinned before extraction
-    pos_feats = extract_features(args.repo, positive)
-    ctrl_feats = extract_features(args.repo, control)
+    head_sha = fl.gh_head_sha(args.repo)
+    # cross-pin MEMBERSHIP guard: positives come from the Tier-1 artifact; the control comes
+    # from the CURRENT Atlas state. If they differ, PRs fixed-forward since Tier-1 ran are
+    # merged-and-in-range now but absent from the positive set -> they leak into the control
+    # and bias toward null. Require one shared pin (or an explicit, recorded override).
+    stale = (tier1_pin.get("repo") != args.repo
+             or tier1_pin.get("atlas_head_sha") != head_sha)
+    if stale and not args.allow_stale_pin:
+        raise SystemExit(
+            f"Tier-1 artifact pinned to {tier1_pin.get('repo')}@"
+            f"{str(tier1_pin.get('atlas_head_sha'))[:9]}, but this run is {args.repo}@"
+            f"{head_sha[:9]}. Positive membership and control would be from different corpus "
+            "states (stale positives leak into control). Re-run forward_link.py so both share "
+            "one pin, or pass --allow-stale-pin to proceed with the confound recorded.")
+
+    control, pool = sample_control(args.repo, positive, args.seed, args.control_size,
+                                   args.merged_limit)
+    pos_feats, pos_dropped = extract_features(args.repo, positive)
+    ctrl_feats, ctrl_dropped = extract_features(args.repo, control)
+    if pos_dropped or ctrl_dropped:
+        # inputs are KNOWN-merged (Tier-1 confirmed / gh --state merged); a drop is a gh
+        # fetch error, not a legitimate skip. Do not publish a null on a biased subset.
+        raise SystemExit(
+            f"re-fetch failed for known-merged PRs (positives={pos_dropped}, "
+            f"controls={ctrl_dropped}); a drop here is a gh error, not a skip. Retry.")
     rows = contrast(pos_feats, ctrl_feats, args.seed)
     triples = [draft_triple(r) for r in rows if r["differentiates"]]
 
@@ -363,6 +394,7 @@ def main() -> None:
         "seed": args.seed, "control_size": args.control_size, "min_sample": MIN_SAMPLE,
         "n_positive": len(pos_feats), "n_control": len(ctrl_feats),
         "control_pool": pool, "adequate": adequate,
+        "tier1_pin_head": tier1_pin.get("atlas_head_sha"), "stale_pin": stale,
         "positive_universe": "tier1-detected (search-seeded, not exhaustive)",
         "control_label": "not detected fixed-forward (may contain undetected positives)",
         "differentiators": [r["feature"] for r in rows if r["differentiates"]],

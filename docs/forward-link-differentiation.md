@@ -6,11 +6,11 @@ Source artifact, local only:
 - `out-atlas-fwd/forward-links-differentiation.jsonl`
 - positive class from `out-atlas-fwd/forward-links.jsonl` (Tier 1)
 
-Corpus pin (both classes re-extracted fresh at this pin -- no cross-pin confound):
-- repo: `canfieldjuan/ATLAS`  query date: `2026-07-06T11:45:37-05:00`
+Corpus pin (both classes extracted at this pin; the Tier-1 positive membership is validated to share it -- no cross-pin confound):
+- repo: `canfieldjuan/ATLAS`  query date: `2026-07-06T12:41:20-05:00`
 - Atlas `main` HEAD sha: `aad2297d5fa7845e0030949f55607c8f66815ed2`
 - seed: `20260706`  control-size: `300`  perm-iters: `10000`
-- positive PRs (fixed-forward): 128  |  control PRs (not fixed-forward): 300 (pool 1576, PR-range 118-2002)
+- positive PRs (detected fixed-forward): 127  |  control PRs (NOT detected fixed-forward): 300 (pool 1577, PR-range 118-2002)
 
 ## Method
 
@@ -24,16 +24,16 @@ Tier 1) is sampled from the SAME PR-range and run through the IDENTICAL
 
 | feature | median (pos) | median (ctrl) | Cliff's delta | perm p | differentiates |
 |---|---:|---:|---:|---:|:---:|
-| additions | 427.5 | 256.0 | 0.2428 | 0.0002 | no |
-| deletions | 3.0 | 3.0 | 0.0146 | 0.80792 | no |
-| changed_files | 5.0 | 4.0 | 0.1226 | 0.0436 | no |
-| test_files_changed | 1.0 | 1.0 | 0.1281 | 0.0241 | no |
-| test_lines_changed | 142.0 | 78.0 | 0.1772 | 0.0031 | no |
-| scope_files | 5.0 | 4.0 | 0.1226 | 0.0436 | no |
-| scope_top_dirs | 3.0 | 3.0 | 0.0271 | 0.65283 | no |
-| review_count | 2.0 | 1.0 | 0.1672 | 0.0051 | no |
-| review_comment_count | 1.0 | 1.0 | 0.0222 | 0.58134 | no |
-| hours_to_merge | 0.5 | 0.3 | 0.2352 | 0.0001 | no |
+| additions | 435 | 232.0 | 0.2885 | 0.0001 | no |
+| deletions | 3 | 4.0 | -0.0065 | 0.91571 | no |
+| changed_files | 5 | 4.0 | 0.1259 | 0.0376 | no |
+| test_files_changed | 1 | 1.0 | 0.1333 | 0.0192 | no |
+| test_lines_changed | 141 | 74.0 | 0.2194 | 0.0005 | no |
+| scope_files | 5 | 4.0 | 0.1259 | 0.0376 | no |
+| scope_top_dirs | 3 | 3.0 | 0.0912 | 0.12509 | no |
+| review_count | 2 | 1.0 | 0.2043 | 0.0012 | no |
+| review_comment_count | 1 | 1.0 | 0.018 | 0.65553 | no |
+| hours_to_merge | 0.5 | 0.2 | 0.2803 | 0.0001 | no |
 
 ## Conclusion
 
@@ -41,9 +41,10 @@ Tier 1) is sampled from the SAME PR-range and run through the IDENTICAL
 
 ### Near-misses (significant but effect-size below the actionable bar)
 
-- `additions`: Cliff's delta 0.2428 (< 0.33), perm p 0.0002. A real but WEAK association -- large n makes a small effect significant, but it is not strong enough to gate on. Revisit with more data.
-- `test_lines_changed`: Cliff's delta 0.1772 (< 0.33), perm p 0.0031. A real but WEAK association -- large n makes a small effect significant, but it is not strong enough to gate on. Revisit with more data.
-- `hours_to_merge`: Cliff's delta 0.2352 (< 0.33), perm p 0.0001. A real but WEAK association -- large n makes a small effect significant, but it is not strong enough to gate on. Revisit with more data.
+- `additions`: Cliff's delta 0.2885 (< 0.33), perm p 0.0001. A real but WEAK association -- large n makes a small effect significant, but it is not strong enough to gate on. Revisit with more data.
+- `test_lines_changed`: Cliff's delta 0.2194 (< 0.33), perm p 0.0005. A real but WEAK association -- large n makes a small effect significant, but it is not strong enough to gate on. Revisit with more data.
+- `review_count`: Cliff's delta 0.2043 (< 0.33), perm p 0.0012. A real but WEAK association -- large n makes a small effect significant, but it is not strong enough to gate on. Revisit with more data.
+- `hours_to_merge`: Cliff's delta 0.2803 (< 0.33), perm p 0.0001. A real but WEAK association -- large n makes a small effect significant, but it is not strong enough to gate on. Revisit with more data.
 
 ## Caveats
 - **Control label is detection-limited.** The positive universe is what Tier 1 DETECTED as fixed-forward, and Tier 1 is search-seeded (not exhaustive). The control is therefore "NOT DETECTED fixed-forward", not "never fixed forward" -- it may contain undetected positives, which dilute the contrast toward null. Rebuild/validate the positive universe exhaustively to turn a null into a refutation.

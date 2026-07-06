@@ -18,7 +18,8 @@ A feature `differentiates` iff `|delta| >= 0.33` AND `perm_p < 0.005` (Bonferron
 Pure-python stats, no new deps.
 
 ## Result
-**NO DIFFERENTIATING FEATURE DETECTED** (128 detected-fixed-forward vs 300 control): no
+**NO DIFFERENTIATING FEATURE DETECTED** (127 detected-fixed-forward vs 300 control, one
+validated corpus pin): no
 merge-time feature separates the classes at the stated thresholds -- "not supported under this
 detected-positive sample", NOT a clean refutation. The control is "NOT DETECTED fixed-forward"
 by Tier 1 (which is search-seeded, not exhaustive), so it may contain undetected positives that
