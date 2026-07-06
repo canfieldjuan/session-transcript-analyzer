@@ -171,8 +171,14 @@ def extract_features(repo: str, pr_numbers: list[int]) -> tuple[dict[int, dict],
 
 # --- contrast + triple draft ------------------------------------------------
 
-def contrast(pos_feats: dict, ctrl_feats: dict, seed: int) -> list[dict]:
-    """Per-feature Cliff's delta + permutation p + differentiates verdict."""
+def contrast(pos_feats: dict, ctrl_feats: dict, seed: int, adequate: bool) -> list[dict]:
+    """Per-feature Cliff's delta + permutation p + differentiates verdict.
+
+    `differentiates` is the SINGLE SOURCE of the differentiator claim: it requires ALL
+    preconditions -- an adequate sample AND effect size AND significance. A feature cannot
+    'differentiate' on an under-powered sample, so `adequate` gates it HERE, at the row.
+    Everything downstream (the JSONL rows, the rendered table, meta['differentiators'], the
+    triples, null_result) derives from this one gated field, so they can never disagree."""
     rows = []
     for key in fl.MERGE_TIME_FEATURE_KEYS:
         pos = [f[key] for f in pos_feats.values() if f.get(key) is not None]
@@ -191,7 +197,7 @@ def contrast(pos_feats: dict, ctrl_feats: dict, seed: int) -> list[dict]:
             "cliffs_delta": round(delta, 4),
             "perm_p": round(p, 5),
             "significant": p < PERM_P_MAX,   # raw-p significance (near-miss uses this)
-            "differentiates": differentiates(delta, p),
+            "differentiates": adequate and differentiates(delta, p),
         })
     return rows
 
@@ -406,10 +412,11 @@ def main() -> None:
     pos_feats, pos_dropped = extract_features(args.repo, positive)
     ctrl_feats, ctrl_dropped = extract_features(args.repo, control)
     require_complete(pos_dropped, ctrl_dropped)
-    rows = contrast(pos_feats, ctrl_feats, args.seed)
-    triples = [draft_triple(r) for r in rows if r["differentiates"]]
 
     adequate = len(pos_feats) >= MIN_SAMPLE and len(ctrl_feats) >= MIN_SAMPLE
+    rows = contrast(pos_feats, ctrl_feats, args.seed, adequate)
+    triples = [draft_triple(r) for r in rows if r["differentiates"]]
+
     meta = {
         "dataset": args.out_dir,
         "corpus": {"repo": args.repo, "query_date": query_date,
@@ -421,8 +428,7 @@ def main() -> None:
         "tier1_pin_head": tier1_pin.get("atlas_head_sha"), "stale_pin": stale,
         "positive_universe": "tier1-detected (search-seeded, not exhaustive)",
         "control_label": "not detected fixed-forward (may contain undetected positives)",
-        "differentiators": ([r["feature"] for r in rows if r["differentiates"]]
-                            if adequate else []),
+        "differentiators": [r["feature"] for r in rows if r["differentiates"]],
         "null_result": adequate and not any(r["differentiates"] for r in rows),
     }
 

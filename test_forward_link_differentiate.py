@@ -71,14 +71,14 @@ def test_differentiates_requires_both_effect_and_significance():
 def test_contrast_null_result_when_identical():
     pos = {i: _feat() for i in range(12)}
     ctrl = {i: _feat() for i in range(12, 24)}
-    rows = fd.contrast(pos, ctrl, seed=1)
+    rows = fd.contrast(pos, ctrl, seed=1, adequate=True)
     assert not any(r["differentiates"] for r in rows)  # nothing manufactured
 
 
 def test_contrast_flags_a_real_differentiator():
     pos = {i: _feat(additions=100) for i in range(12)}
     ctrl = {i: _feat(additions=1) for i in range(12, 24)}
-    rows = fd.contrast(pos, ctrl, seed=1)
+    rows = fd.contrast(pos, ctrl, seed=1, adequate=True)
     add = next(r for r in rows if r["feature"] == "additions")
     assert add["differentiates"] is True
     assert add["cliffs_delta"] == 1.0
@@ -87,10 +87,23 @@ def test_contrast_flags_a_real_differentiator():
     assert other["differentiates"] is False
 
 
+def test_contrast_row_differentiates_false_when_inadequate():
+    # the ROW-level differentiates gates on adequacy at the source: a clearly-separated
+    # feature does NOT differentiate on an under-powered sample, so the JSONL rows, the
+    # rendered table, meta['differentiators'], and the conclusion can never disagree.
+    pos = {i: _feat(additions=100) for i in range(12)}
+    ctrl = {i: _feat(additions=1) for i in range(12, 24)}
+    rows = fd.contrast(pos, ctrl, seed=1, adequate=False)
+    assert all(r["differentiates"] is False for r in rows)      # no row claims it
+    add = next(r for r in rows if r["feature"] == "additions")
+    assert add["cliffs_delta"] == 1.0                            # effect still recorded
+    assert add["differentiates"] is False                        # but the verdict is gated
+
+
 def test_contrast_drops_none_and_counts_it():
     pos = {0: _feat(hours_to_merge=None), 1: _feat(hours_to_merge=2.0)}
     ctrl = {2: _feat(hours_to_merge=3.0)}
-    row = next(r for r in fd.contrast(pos, ctrl, seed=1) if r["feature"] == "hours_to_merge")
+    row = next(r for r in fd.contrast(pos, ctrl, seed=1, adequate=True) if r["feature"] == "hours_to_merge")
     assert row["n_pos"] == 1 and row["pos_dropped_none"] == 1
 
 
