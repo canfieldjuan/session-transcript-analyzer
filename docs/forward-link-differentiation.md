@@ -14,8 +14,9 @@ Corpus pin (both classes re-extracted fresh at this pin -- no cross-pin confound
 
 ## Method
 
-Both classes are merged PRs; the control is sampled from the SAME PR-range and run
-through the IDENTICAL `merge_time_features` extractor. Per feature: Cliff's delta
+Both classes are merged PRs; the control (merged PRs NOT DETECTED fixed-forward by
+Tier 1) is sampled from the SAME PR-range and run through the IDENTICAL
+`merge_time_features` extractor. Per feature: Cliff's delta
 (effect size) + a seeded permutation test. A feature `differentiates` iff
 `|Cliff's delta| >= 0.33` AND `perm_p < 0.005` (Bonferroni 0.05 / 10 features).
 
@@ -36,7 +37,7 @@ through the IDENTICAL `merge_time_features` extractor. Per feature: Cliff's delt
 
 ## Conclusion
 
-**NULL RESULT.** No feature differentiates the fixed-forward class from the control base rate at the stated thresholds. The naive hypothesis (e.g. "fast-merge + no-tests predicts fix-forward") is NOT supported: those features are as present in PRs never fixed forward. Do not build a CI gate on them -- it would postdict, not predict.
+**NO DIFFERENTIATING FEATURE DETECTED.** No merge-time feature separates the detected-fixed-forward class from the control at the stated thresholds. This is **not supported under this detected-positive sample** -- NOT a clean refutation: Tier 1 is search-seeded (not exhaustive), so the control ("not detected fixed-forward") may contain undetected positives, which bias the contrast toward null and could mask a real effect. Read this as "no gate-worthy signal found under this sampling", not "proven no signal exists". Do not build a CI gate on these features on this evidence.
 
 ### Near-misses (significant but effect-size below the actionable bar)
 
@@ -45,6 +46,7 @@ through the IDENTICAL `merge_time_features` extractor. Per feature: Cliff's delt
 - `hours_to_merge`: Cliff's delta 0.2352 (< 0.33), perm p 0.0001. A real but WEAK association -- large n makes a small effect significant, but it is not strong enough to gate on. Revisit with more data.
 
 ## Caveats
+- **Control label is detection-limited.** The positive universe is what Tier 1 DETECTED as fixed-forward, and Tier 1 is search-seeded (not exhaustive). The control is therefore "NOT DETECTED fixed-forward", not "never fixed forward" -- it may contain undetected positives, which dilute the contrast toward null. Rebuild/validate the positive universe exhaustively to turn a null into a refutation.
 - Multiple comparisons: 10 features tested; the Bonferroni p-threshold (0.005) guards against ~1 chance hit. Differentiators are CANDIDATES, not proven patterns (the spec's "proven" bar needs cited instances).
 - Control is a seeded sample of the in-range pool, not the full pool; re-runs with the same seed are identical.
 - Features restricted to merge-time-observable (constraint 2, inherited from the reused extractor) -- nothing hindsight.

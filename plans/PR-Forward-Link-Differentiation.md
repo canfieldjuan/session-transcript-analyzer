@@ -18,13 +18,14 @@ A feature `differentiates` iff `|delta| >= 0.33` AND `perm_p < 0.005` (Bonferron
 Pure-python stats, no new deps.
 
 ## Result
-**NULL RESULT** (128 fixed-forward vs 300 control): no merge-time feature differentiates the
-fixed-forward class from the base rate. The naive hypothesis -- "fast-merge + no-tests predicts
-fix-forward" -- is refuted; those features are as present in PRs never fixed forward. Three
-**near-misses** (`additions`, `hours_to_merge`, `test_lines_changed`) are statistically
-significant but have effect sizes below the actionable bar (large n makes a small effect
-significant) -- real but weak, not gate-worthy; revisit with more data. **No CI gate should be
-built on these features** -- it would postdict, not predict.
+**NO DIFFERENTIATING FEATURE DETECTED** (128 detected-fixed-forward vs 300 control): no
+merge-time feature separates the classes at the stated thresholds -- "not supported under this
+detected-positive sample", NOT a clean refutation. The control is "NOT DETECTED fixed-forward"
+by Tier 1 (which is search-seeded, not exhaustive), so it may contain undetected positives that
+bias the contrast toward null. Three **near-misses** (`additions`, `hours_to_merge`,
+`test_lines_changed`) are statistically significant but have effect sizes below the actionable
+bar -- real but weak, not gate-worthy. **No CI gate is warranted on this evidence**; do not read
+it as proof no signal exists.
 
 ## Intentional
 - Effect size (Cliff's delta) is the primary gate, not just significance -- large n makes tiny
@@ -39,8 +40,10 @@ built on these features** -- it would postdict, not predict.
 
 ## Verification
 - `python3 forward_link_differentiate.py --dry-run` prints the plan, no execution.
-- `pytest test_forward_link_differentiate.py` + the `__main__` runner: **16/16**, incl. the
-  null-result path, Cliff's-delta known values, permutation determinism, and None-drop.
+- `pytest test_forward_link_differentiate.py` + the `__main__` runner both pass (count tracks
+  the test file -- no hard-coded number to drift); covers the null-result path, adequacy gate,
+  fail-loud cap, fail-closed malformed-JSON parse, Cliff's-delta known values, permutation
+  determinism, and None-drop.
 - Live run reproducible for a fixed `--seed` (seeded control + seeded permutation).
 - Raw pairs in gitignored `out-atlas-fwd/forward-links-differentiation.jsonl`; findings in
   `docs/forward-link-differentiation.md`.

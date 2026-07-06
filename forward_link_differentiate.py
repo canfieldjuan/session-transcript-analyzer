@@ -6,10 +6,12 @@ Tier 1 (forward_link.py) produced the POSITIVE class: earlier PRs that looked
 done and were later fixed forward, with their merge-time-observable features.
 Per SESSION_FORENSICS_SPEC.md bar 2, that is a FAILURE-ONLY sample -- a feature
 that correlates with "got fixed forward" may be just as present in PRs never
-fixed forward. This module builds a CONTROL (merged PRs not fixed forward, same
-PR-range, same extractor) and contrasts per feature, surfacing a feature ONLY if
-it is DIFFERENTIALLY present. A null result (nothing differentiates) is a valid
-outcome: it refutes the naive hypothesis and prevents a postdicting CI gate.
+fixed forward. This module builds a CONTROL (merged PRs NOT DETECTED as
+fixed-forward by Tier 1 -- which is search-seeded, NOT exhaustive -- same
+PR-range, same extractor) and contrasts per feature. A "no differentiating
+feature" result is "not supported under this detected-positive sample", NOT a
+clean refutation: undetected positives in the control bias the contrast toward
+null and could mask a real effect.
 
 Extraction reuses forward_link.merge_time_features + fetch_pr_view VERBATIM --
 identical extraction for both classes is the validity of the contrast. Both
@@ -107,13 +109,16 @@ def read_positive_prs(jsonl_path: Path) -> list[int]:
         raise SystemExit(
             f"{jsonl_path} not found -- run forward_link.py first (Tier 1).")
     pos: set[int] = set()
-    for line in jsonl_path.read_text(encoding="utf-8").splitlines():
+    for i, line in enumerate(jsonl_path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
             continue
         try:
             r = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+        except json.JSONDecodeError as e:
+            # fail closed: a partially-readable evidence artifact must halt, not
+            # silently shrink the positive set into a clean-looking null.
+            raise SystemExit(f"{jsonl_path}:{i} malformed JSON in the Tier-1 artifact "
+                             f"({e}); refusing to run on partial evidence.")
         if r.get("classification") == "confirmed" and r.get("earlier_pr") is not None:
             pos.add(r["earlier_pr"])
     if not pos:
@@ -232,8 +237,9 @@ def render_doc(meta: dict, rows: list[dict], triples: list[dict]) -> str:
         "",
         "## Method",
         "",
-        "Both classes are merged PRs; the control is sampled from the SAME PR-range and run",
-        f"through the IDENTICAL `merge_time_features` extractor. Per feature: Cliff's delta",
+        "Both classes are merged PRs; the control (merged PRs NOT DETECTED fixed-forward by",
+        "Tier 1) is sampled from the SAME PR-range and run through the IDENTICAL",
+        "`merge_time_features` extractor. Per feature: Cliff's delta",
         f"(effect size) + a seeded permutation test. A feature `differentiates` iff",
         f"`|Cliff's delta| >= {CLIFF_DELTA_MIN}` AND `perm_p < {PERM_P_MAX}` "
         f"(Bonferroni 0.05 / {len(fl.MERGE_TIME_FEATURE_KEYS)} features).",
@@ -265,11 +271,14 @@ def render_doc(meta: dict, rows: list[dict], triples: list[dict]) -> str:
                          f"-> {t['instrument']} "
                          f"(delta {t['evidence']['cliffs_delta']}, p {t['evidence']['perm_p']}).")
     else:
-        lines.append("**NULL RESULT.** No feature differentiates the fixed-forward class from "
-                     "the control base rate at the stated thresholds. The naive hypothesis "
-                     "(e.g. \"fast-merge + no-tests predicts fix-forward\") is NOT supported: "
-                     "those features are as present in PRs never fixed forward. Do not build a "
-                     "CI gate on them -- it would postdict, not predict.")
+        lines.append("**NO DIFFERENTIATING FEATURE DETECTED.** No merge-time feature separates "
+                     "the detected-fixed-forward class from the control at the stated thresholds. "
+                     "This is **not supported under this detected-positive sample** -- NOT a clean "
+                     "refutation: Tier 1 is search-seeded (not exhaustive), so the control "
+                     "(\"not detected fixed-forward\") may contain undetected positives, which "
+                     "bias the contrast toward null and could mask a real effect. Read this as "
+                     "\"no gate-worthy signal found under this sampling\", not \"proven no signal "
+                     "exists\". Do not build a CI gate on these features on this evidence.")
     near = [r for r in rows if r.get("significant") and abs(r["cliffs_delta"]) < CLIFF_DELTA_MIN]
     if adequate and near:
         lines += ["", "### Near-misses (significant but effect-size below the actionable bar)", ""]
@@ -281,6 +290,11 @@ def render_doc(meta: dict, rows: list[dict], triples: list[dict]) -> str:
     lines += [
         "",
         "## Caveats",
+        "- **Control label is detection-limited.** The positive universe is what Tier 1 "
+        "DETECTED as fixed-forward, and Tier 1 is search-seeded (not exhaustive). The control is "
+        "therefore \"NOT DETECTED fixed-forward\", not \"never fixed forward\" -- it may contain "
+        "undetected positives, which dilute the contrast toward null. Rebuild/validate the "
+        "positive universe exhaustively to turn a null into a refutation.",
         f"- Multiple comparisons: {len(fl.MERGE_TIME_FEATURE_KEYS)} features tested; the "
         f"Bonferroni p-threshold ({PERM_P_MAX}) guards against ~1 chance hit. Differentiators "
         "are CANDIDATES, not proven patterns (the spec's \"proven\" bar needs cited instances).",
@@ -349,6 +363,8 @@ def main() -> None:
         "seed": args.seed, "control_size": args.control_size, "min_sample": MIN_SAMPLE,
         "n_positive": len(pos_feats), "n_control": len(ctrl_feats),
         "control_pool": pool, "adequate": adequate,
+        "positive_universe": "tier1-detected (search-seeded, not exhaustive)",
+        "control_label": "not detected fixed-forward (may contain undetected positives)",
         "differentiators": [r["feature"] for r in rows if r["differentiates"]],
         "null_result": adequate and not any(r["differentiates"] for r in rows),
     }
@@ -361,7 +377,8 @@ def main() -> None:
     if not adequate:
         print(f"  COULD NOT DETERMINE -- insufficient sample (need >= {MIN_SAMPLE} each)")
     elif meta["null_result"]:
-        print("  NULL RESULT -- no feature differentiates (naive hypothesis refuted)")
+        print("  NO DIFFERENTIATING FEATURE DETECTED -- not supported under this "
+              "detected-positive sample (not a clean refutation; see caveats)")
     else:
         print(f"  differentiators: {meta['differentiators']}")
     print(f"  wrote {out_dir}/forward-links-differentiation.jsonl (gitignored) + "

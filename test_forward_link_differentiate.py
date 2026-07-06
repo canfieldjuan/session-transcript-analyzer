@@ -196,6 +196,18 @@ def test_read_positive_prs_no_confirmed_exits():
         assert raised
 
 
+def test_read_positive_prs_fails_closed_on_malformed_json():
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "forward-links.jsonl"
+        p.write_text('{"earlier_pr": 100, "classification": "confirmed"}\n{ bad json\n')
+        try:
+            fd.read_positive_prs(p)
+            raised = False
+        except SystemExit:
+            raised = True
+        assert raised, "malformed evidence must fail closed, not silently shrink the set"
+
+
 def test_render_doc_gates_null_on_adequacy():
     # MAJOR-2: an under-powered run must say "could not determine", not "refuted"
     rows = [{"feature": k, "n_pos": 3, "n_ctrl": 3, "median_pos": 1, "median_ctrl": 1,
@@ -205,7 +217,9 @@ def test_render_doc_gates_null_on_adequacy():
             "atlas_head_sha": "s", "pr_range": [1, 2]}, "seed": 1, "control_size": 3,
             "n_positive": 3, "n_control": 3, "control_pool": 3, "differentiators": []}
     assert "COULD NOT DETERMINE" in fd.render_doc({**base, "adequate": False}, rows, [])
-    assert "NULL RESULT" in fd.render_doc({**base, "adequate": True}, rows, [])
+    powered = fd.render_doc({**base, "adequate": True}, rows, [])
+    assert "NO DIFFERENTIATING FEATURE DETECTED" in powered  # not a "refutation"
+    assert "not supported under this detected-positive sample" in powered
 
 
 if __name__ == "__main__":
