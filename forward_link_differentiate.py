@@ -175,8 +175,9 @@ def contrast(pos_feats: dict, ctrl_feats: dict, seed: int, adequate: bool) -> li
     """Per-feature Cliff's delta + permutation p + differentiates verdict.
 
     `differentiates` is the SINGLE SOURCE of the differentiator claim: it requires ALL
-    preconditions -- an adequate sample AND effect size AND significance. A feature cannot
-    'differentiate' on an under-powered sample, so `adequate` gates it HERE, at the row.
+    preconditions -- an adequate run, adequate per-feature non-null samples, effect size,
+    and significance. A feature cannot 'differentiate' on an under-powered sample, so
+    adequacy gates it HERE, at the row.
     Everything downstream (the JSONL rows, the rendered table, meta['differentiators'], the
     triples, null_result) derives from this one gated field, so they can never disagree."""
     rows = []
@@ -187,17 +188,19 @@ def contrast(pos_feats: dict, ctrl_feats: dict, seed: int, adequate: bool) -> li
         # same seed per feature: each per-feature test is independently valid; the draws are
         # merely correlated across features, which is fine under the Bonferroni threshold.
         p = permutation_p(pos, ctrl, seed)
+        feature_adequate = adequate and len(pos) >= MIN_SAMPLE and len(ctrl) >= MIN_SAMPLE
         rows.append({
             "feature": key,
             "n_pos": len(pos), "n_ctrl": len(ctrl),
+            "feature_adequate": feature_adequate,
             "pos_dropped_none": len(pos_feats) - len(pos),
             "ctrl_dropped_none": len(ctrl_feats) - len(ctrl),
             "median_pos": statistics.median(pos) if pos else None,
             "median_ctrl": statistics.median(ctrl) if ctrl else None,
             "cliffs_delta": round(delta, 4),
-            "perm_p": round(p, 5),
+            "perm_p": p,
             "significant": p < PERM_P_MAX,   # raw-p significance (near-miss uses this)
-            "differentiates": adequate and differentiates(delta, p),
+            "differentiates": feature_adequate and differentiates(delta, p),
         })
     return rows
 

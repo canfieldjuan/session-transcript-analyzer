@@ -76,11 +76,12 @@ def test_contrast_null_result_when_identical():
 
 
 def test_contrast_flags_a_real_differentiator():
-    pos = {i: _feat(additions=100) for i in range(12)}
-    ctrl = {i: _feat(additions=1) for i in range(12, 24)}
+    pos = {i: _feat(additions=100) for i in range(40)}
+    ctrl = {i: _feat(additions=1) for i in range(40, 80)}
     rows = fd.contrast(pos, ctrl, seed=1, adequate=True)
     add = next(r for r in rows if r["feature"] == "additions")
     assert add["differentiates"] is True
+    assert add["feature_adequate"] is True
     assert add["cliffs_delta"] == 1.0
     # a feature that is identical in both classes must NOT differentiate
     other = next(r for r in rows if r["feature"] == "deletions")
@@ -98,6 +99,37 @@ def test_contrast_row_differentiates_false_when_inadequate():
     add = next(r for r in rows if r["feature"] == "additions")
     assert add["cliffs_delta"] == 1.0                            # effect still recorded
     assert add["differentiates"] is False                        # but the verdict is gated
+
+
+def test_contrast_row_differentiates_false_when_feature_sparse():
+    # Overall classes can be adequate while a specific feature is under-powered after
+    # None-drop. The row-level claim must use the feature's non-null sample sizes.
+    pos = {i: _feat(additions=(100 if i < 12 else None)) for i in range(40)}
+    ctrl = {i: _feat(additions=1) for i in range(40, 80)}
+    rows = fd.contrast(pos, ctrl, seed=1, adequate=True)
+    add = next(r for r in rows if r["feature"] == "additions")
+    assert add["n_pos"] == 12 and add["n_ctrl"] == 40
+    assert add["feature_adequate"] is False
+    assert add["cliffs_delta"] == 1.0
+    assert add["significant"] is True
+    assert add["differentiates"] is False
+
+
+def test_contrast_preserves_p_value_precision_at_threshold():
+    raw_p = 50 / 10001
+    orig = fd.permutation_p
+    fd.permutation_p = lambda pos, ctrl, seed: raw_p
+    try:
+        pos = {i: _feat(additions=100) for i in range(40)}
+        ctrl = {i: _feat(additions=1) for i in range(40, 80)}
+        row = next(r for r in fd.contrast(pos, ctrl, seed=1, adequate=True)
+                   if r["feature"] == "additions")
+        assert row["perm_p"] == raw_p
+        assert row["perm_p"] < fd.PERM_P_MAX
+        assert round(row["perm_p"], 5) == fd.PERM_P_MAX
+        assert row["differentiates"] is True
+    finally:
+        fd.permutation_p = orig
 
 
 def test_contrast_drops_none_and_counts_it():
