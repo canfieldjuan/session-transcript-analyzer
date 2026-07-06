@@ -1,0 +1,51 @@
+# PR: Forward-Link Differentiation (Layer 3 base-rate contrast)
+
+## Why this slice exists
+Tier 1 (`forward_link.py`, on `main`) produced 143 confirmed forward-links -- earlier PRs
+that looked done and were later fixed forward, with their merge-time-observable features. Per
+`docs/SESSION_FORENSICS_SPEC.md` bar 2, that is a FAILURE-ONLY sample: no feature can be
+claimed to predict fix-forward without a base rate. This slice builds the control and runs the
+contrast, so a feature is surfaced only if it is *differentially* present -- not just common
+everywhere.
+
+## What it does
+`forward_link_differentiate.py` reads the positive set (distinct confirmed `earlier_pr` from
+the Tier-1 jsonl), samples a control of merged PRs in the same PR-range that were NOT fixed
+forward (seeded), re-extracts BOTH classes fresh at one corpus pin through the IDENTICAL
+`forward_link.merge_time_features` (reused verbatim -- the symmetry is the contrast's
+validity), and per feature computes Cliff's delta (effect size) + a seeded permutation test.
+A feature `differentiates` iff `|delta| >= 0.33` AND `perm_p < 0.005` (Bonferroni 0.05/10).
+Pure-python stats, no new deps.
+
+## Result
+**NULL RESULT** (128 fixed-forward vs 300 control): no merge-time feature differentiates the
+fixed-forward class from the base rate. The naive hypothesis -- "fast-merge + no-tests predicts
+fix-forward" -- is refuted; those features are as present in PRs never fixed forward. Three
+**near-misses** (`additions`, `hours_to_merge`, `test_lines_changed`) are statistically
+significant but have effect sizes below the actionable bar (large n makes a small effect
+significant) -- real but weak, not gate-worthy; revisit with more data. **No CI gate should be
+built on these features** -- it would postdict, not predict.
+
+## Intentional
+- Effect size (Cliff's delta) is the primary gate, not just significance -- large n makes tiny
+  effects "significant", so a p-only rule would over-claim. The dual threshold prevents that.
+- The control is sampled (seeded) from the in-range pool, not the full pool -- deterministic,
+  fast, statistically adequate for a base-rate estimate.
+
+## What must NOT change (and did not)
+`forward_link.py` (reused, not modified), the four in-session layers, `test_detect.py`,
+`test_forward_link.py`, the Tier-1 jsonl (read-only input), the spec, `requirements.txt`
+(no new deps). Atlas is read-only (gh queries).
+
+## Verification
+- `python3 forward_link_differentiate.py --dry-run` prints the plan, no execution.
+- `pytest test_forward_link_differentiate.py` + the `__main__` runner: **16/16**, incl. the
+  null-result path, Cliff's-delta known values, permutation determinism, and None-drop.
+- Live run reproducible for a fixed `--seed` (seeded control + seeded permutation).
+- Raw pairs in gitignored `out-atlas-fwd/forward-links-differentiation.jsonl`; findings in
+  `docs/forward-link-differentiation.md`.
+
+## Deferred
+LLM narrative synthesis; BUILDING a CI instrument (this slice only draws the conclusion / would
+draft a triple if one differentiated); Tier 2 (session -> PR); the same-file-hotfix and
+reopened-issue keys.
