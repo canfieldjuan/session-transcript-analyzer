@@ -44,9 +44,9 @@ deliberately does not restate them, so it cannot drift from the run.
 - `python3 forward_link_differentiate.py --dry-run` prints the plan, no execution.
 - `pytest test_forward_link_differentiate.py` + the `__main__` runner both pass (count tracks
   the test file -- no hard-coded number to drift); covers the null-result path, adequacy gate,
-  per-feature non-null adequacy, p-value precision at the strict threshold, fail-loud cap,
-  fail-closed malformed-JSON parse, Cliff's-delta known values, permutation determinism, and
-  None-drop.
+  per-feature non-null adequacy, under-powered feature rows in the report, p-value and
+  Cliff's-delta precision at strict thresholds, fail-loud cap, fail-closed malformed-JSON parse,
+  Cliff's-delta known values, permutation determinism, and None-drop.
 - Live run reproducible for a fixed `--seed` (seeded control + seeded permutation).
 - Final post-fix live regeneration was intentionally not forced: current Atlas `main` moved past
   the Tier-1 artifact pin, and the stale-pin guard refused the mixed-pin run. Re-run Tier 1 first

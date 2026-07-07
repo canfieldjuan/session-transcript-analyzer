@@ -22,18 +22,18 @@ Tier 1) is sampled from the SAME PR-range and run through the IDENTICAL
 
 ## Contrast
 
-| feature | median (pos) | median (ctrl) | Cliff's delta | perm p | differentiates |
-|---|---:|---:|---:|---:|:---:|
-| additions | 435 | 232.0 | 0.2885 | 0.0001 | no |
-| deletions | 3 | 4.0 | -0.0065 | 0.91571 | no |
-| changed_files | 5 | 4.0 | 0.1259 | 0.0376 | no |
-| test_files_changed | 1 | 1.0 | 0.1333 | 0.0192 | no |
-| test_lines_changed | 141 | 74.0 | 0.2194 | 0.0005 | no |
-| scope_files | 5 | 4.0 | 0.1259 | 0.0376 | no |
-| scope_top_dirs | 3 | 3.0 | 0.0912 | 0.12509 | no |
-| review_count | 2 | 1.0 | 0.2043 | 0.0012 | no |
-| review_comment_count | 1 | 1.0 | 0.018 | 0.65553 | no |
-| hours_to_merge | 0.5 | 0.2 | 0.2803 | 0.0001 | no |
+| feature | usable n (pos/ctrl) | median (pos) | median (ctrl) | Cliff's delta | perm p | feature adequate | differentiates |
+|---|---:|---:|---:|---:|---:|:---:|:---:|
+| additions | 127/300 | 435 | 232.0 | 0.2885 | 0.0001 | YES | no |
+| deletions | 127/300 | 3 | 4.0 | -0.0065 | 0.91571 | YES | no |
+| changed_files | 127/300 | 5 | 4.0 | 0.1259 | 0.0376 | YES | no |
+| test_files_changed | 127/300 | 1 | 1.0 | 0.1333 | 0.0192 | YES | no |
+| test_lines_changed | 127/300 | 141 | 74.0 | 0.2194 | 0.0005 | YES | no |
+| scope_files | 127/300 | 5 | 4.0 | 0.1259 | 0.0376 | YES | no |
+| scope_top_dirs | 127/300 | 3 | 3.0 | 0.0912 | 0.12509 | YES | no |
+| review_count | 127/300 | 2 | 1.0 | 0.2043 | 0.0012 | YES | no |
+| review_comment_count | 127/300 | 1 | 1.0 | 0.018 | 0.65553 | YES | no |
+| hours_to_merge | 127/300 | 0.5 | 0.2 | 0.2803 | 0.0001 | YES | no |
 
 ## Conclusion
 

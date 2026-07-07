@@ -102,6 +102,12 @@ def differentiates(delta: float, p: float) -> bool:
     return abs(delta) >= CLIFF_DELTA_MIN and p < PERM_P_MAX
 
 
+def _fmt_num(v) -> str:
+    if isinstance(v, float):
+        return repr(v)
+    return str(v)
+
+
 # --- positive set + control (gh boundary is isolated in forward_link) -------
 
 def read_positive_prs(jsonl_path: Path) -> tuple[list[int], dict]:
@@ -197,7 +203,7 @@ def contrast(pos_feats: dict, ctrl_feats: dict, seed: int, adequate: bool) -> li
             "ctrl_dropped_none": len(ctrl_feats) - len(ctrl),
             "median_pos": statistics.median(pos) if pos else None,
             "median_ctrl": statistics.median(ctrl) if ctrl else None,
-            "cliffs_delta": round(delta, 4),
+            "cliffs_delta": delta,
             "perm_p": p,
             "significant": p < PERM_P_MAX,   # raw-p significance (near-miss uses this)
             "differentiates": feature_adequate and differentiates(delta, p),
@@ -235,6 +241,7 @@ def write_jsonl(path: Path, rows: list[dict], meta: dict) -> None:
 def render_doc(meta: dict, rows: list[dict], triples: list[dict]) -> str:
     pin = meta["corpus"]
     diff = [r for r in rows if r["differentiates"]]
+    underpowered = [r for r in rows if not r.get("feature_adequate", True)]
     # the pin/confound claim is DERIVED from meta["stale_pin"] -- it must never assert
     # "validated / no confound" when the run overrode a stale pin.
     if meta.get("stale_pin"):
@@ -274,13 +281,15 @@ def render_doc(meta: dict, rows: list[dict], triples: list[dict]) -> str:
         "",
         "## Contrast",
         "",
-        "| feature | median (pos) | median (ctrl) | Cliff's delta | perm p | differentiates |",
-        "|---|---:|---:|---:|---:|:---:|",
+        "| feature | usable n (pos/ctrl) | median (pos) | median (ctrl) | Cliff's delta | perm p | feature adequate | differentiates |",
+        "|---|---:|---:|---:|---:|---:|:---:|:---:|",
     ]
     for r in rows:
         lines.append(
-            f"| {r['feature']} | {r['median_pos']} | {r['median_ctrl']} | "
-            f"{r['cliffs_delta']} | {r['perm_p']} | "
+            f"| {r['feature']} | {r['n_pos']}/{r['n_ctrl']} | "
+            f"{r['median_pos']} | {r['median_ctrl']} | "
+            f"{_fmt_num(r['cliffs_delta'])} | {_fmt_num(r['perm_p'])} | "
+            f"{'YES' if r.get('feature_adequate', True) else 'no'} | "
             f"{'YES' if r['differentiates'] else 'no'} |"
         )
     adequate = meta.get("adequate", True)
@@ -298,6 +307,11 @@ def render_doc(meta: dict, rows: list[dict], triples: list[dict]) -> str:
             lines.append(f"- **{t['feature']}**: {t['condition']} -> {t['behavior']} "
                          f"-> {t['instrument']} "
                          f"(delta {t['evidence']['cliffs_delta']}, p {t['evidence']['perm_p']}).")
+    elif underpowered:
+        lines.append("**PARTIAL COULD NOT DETERMINE -- no actionable differentiating feature "
+                     "among adequately powered feature rows.** Some features were under-powered "
+                     "after `None` drop, so this is NOT a clean null for those features. Do not "
+                     "draw a go/no-go from under-powered rows.")
     else:
         lines.append("**NO DIFFERENTIATING FEATURE DETECTED.** No merge-time feature separates "
                      "the detected-fixed-forward class from the control at the stated thresholds. "
@@ -307,7 +321,14 @@ def render_doc(meta: dict, rows: list[dict], triples: list[dict]) -> str:
                      "bias the contrast toward null and could mask a real effect. Read this as "
                      "\"no gate-worthy signal found under this sampling\", not \"proven no signal "
                      "exists\". Do not build a CI gate on these features on this evidence.")
-    near = [r for r in rows if r.get("significant") and abs(r["cliffs_delta"]) < CLIFF_DELTA_MIN]
+    if adequate and underpowered:
+        lines += ["", "### Under-powered Feature Rows", ""]
+        for r in underpowered:
+            lines.append(
+                f"- `{r['feature']}`: usable n {r['n_pos']}/{r['n_ctrl']} (< {MIN_SAMPLE} each); "
+                "recorded for transparency, but not actionable.")
+    near = [r for r in rows if r.get("feature_adequate", True)
+            and r.get("significant") and abs(r["cliffs_delta"]) < CLIFF_DELTA_MIN]
     if adequate and near:
         lines += ["", "### Near-misses (significant but effect-size below the actionable bar)", ""]
         for r in near:
@@ -367,6 +388,19 @@ def require_complete(pos_dropped: list, ctrl_dropped: list) -> None:
             f"controls={ctrl_dropped}); a drop here is a gh error, not a skip. Retry.")
 
 
+def summarize_rows(rows: list[dict], adequate: bool) -> dict:
+    underpowered_features = [r["feature"] for r in rows
+                             if not r.get("feature_adequate", True)]
+    all_features_adequate = not underpowered_features
+    differentiator_names = [r["feature"] for r in rows if r["differentiates"]]
+    return {
+        "all_features_adequate": all_features_adequate,
+        "underpowered_features": underpowered_features,
+        "differentiators": differentiator_names,
+        "null_result": adequate and all_features_adequate and not differentiator_names,
+    }
+
+
 # --- main -------------------------------------------------------------------
 
 def _dry_run(repo, out_dir, control_size, seed, merged_limit):
@@ -419,6 +453,7 @@ def main() -> None:
     adequate = len(pos_feats) >= MIN_SAMPLE and len(ctrl_feats) >= MIN_SAMPLE
     rows = contrast(pos_feats, ctrl_feats, args.seed, adequate)
     triples = [draft_triple(r) for r in rows if r["differentiates"]]
+    summary = summarize_rows(rows, adequate)
 
     meta = {
         "dataset": args.out_dir,
@@ -431,8 +466,7 @@ def main() -> None:
         "tier1_pin_head": tier1_pin.get("atlas_head_sha"), "stale_pin": stale,
         "positive_universe": "tier1-detected (search-seeded, not exhaustive)",
         "control_label": "not detected fixed-forward (may contain undetected positives)",
-        "differentiators": [r["feature"] for r in rows if r["differentiates"]],
-        "null_result": adequate and not any(r["differentiates"] for r in rows),
+        **summary,
     }
 
     write_jsonl(out_dir / "forward-links-differentiation.jsonl", rows, meta)
@@ -442,6 +476,9 @@ def main() -> None:
     print(f"differentiation: {len(pos_feats)} positive vs {len(ctrl_feats)} control")
     if not adequate:
         print(f"  COULD NOT DETERMINE -- insufficient sample (need >= {MIN_SAMPLE} each)")
+    elif not summary["all_features_adequate"]:
+        print(f"  PARTIAL COULD NOT DETERMINE -- under-powered feature rows: "
+              f"{summary['underpowered_features']}")
     elif meta["null_result"]:
         print("  NO DIFFERENTIATING FEATURE DETECTED -- not supported under this "
               "detected-positive sample (not a clean refutation; see caveats)")

@@ -132,6 +132,26 @@ def test_contrast_preserves_p_value_precision_at_threshold():
         fd.permutation_p = orig
 
 
+def test_contrast_preserves_delta_precision_at_threshold():
+    raw_delta = 0.32995
+    orig_delta = fd.cliffs_delta
+    orig_p = fd.permutation_p
+    fd.cliffs_delta = lambda pos, ctrl: raw_delta
+    fd.permutation_p = lambda pos, ctrl, seed: 0.001
+    try:
+        pos = {i: _feat(additions=100) for i in range(40)}
+        ctrl = {i: _feat(additions=1) for i in range(40, 80)}
+        row = next(r for r in fd.contrast(pos, ctrl, seed=1, adequate=True)
+                   if r["feature"] == "additions")
+        assert row["cliffs_delta"] == raw_delta
+        assert row["cliffs_delta"] < fd.CLIFF_DELTA_MIN
+        assert round(row["cliffs_delta"], 4) == fd.CLIFF_DELTA_MIN
+        assert row["differentiates"] is False
+    finally:
+        fd.cliffs_delta = orig_delta
+        fd.permutation_p = orig_p
+
+
 def test_contrast_drops_none_and_counts_it():
     pos = {0: _feat(hours_to_merge=None), 1: _feat(hours_to_merge=2.0)}
     ctrl = {2: _feat(hours_to_merge=3.0)}
@@ -269,6 +289,36 @@ def test_render_doc_gates_null_on_adequacy():
     powered = fd.render_doc({**base, "adequate": True}, rows, [])
     assert "NO DIFFERENTIATING FEATURE DETECTED" in powered  # not a "refutation"
     assert "not supported under this detected-positive sample" in powered
+
+
+def test_render_doc_surfaces_underpowered_features_not_near_misses():
+    pos = {i: _feat(additions=(100 if i < 12 else None)) for i in range(40)}
+    ctrl = {i: _feat(additions=1) for i in range(40, 80)}
+    rows = fd.contrast(pos, ctrl, seed=1, adequate=True)
+    base = {"dataset": "out-x", "corpus": {"repo": "o/r", "query_date": "d",
+            "atlas_head_sha": "s", "pr_range": [1, 2]}, "seed": 1, "control_size": 40,
+            "n_positive": 40, "n_control": 40, "control_pool": 40, "differentiators": [],
+            "adequate": True, "stale_pin": False}
+    doc = fd.render_doc(base, rows, [])
+    assert "PARTIAL COULD NOT DETERMINE" in doc
+    assert "### Under-powered Feature Rows" in doc
+    assert "`additions`: usable n 12/40" in doc
+    assert "| additions | 12/40 |" in doc
+    assert "| additions | 12/40 | 100.0 | 1.0 | 1.0 |" in doc
+    assert "feature adequate" in doc
+    assert "`additions`: Cliff's delta" not in doc
+
+
+def test_summarize_rows_partial_cnd_is_not_null_result():
+    rows = [
+        {"feature": "additions", "feature_adequate": False, "differentiates": False},
+        {"feature": "deletions", "feature_adequate": True, "differentiates": False},
+    ]
+    summary = fd.summarize_rows(rows, adequate=True)
+    assert summary["all_features_adequate"] is False
+    assert summary["underpowered_features"] == ["additions"]
+    assert summary["differentiators"] == []
+    assert summary["null_result"] is False
 
 
 # --- the factored fail-closed guards must FIRE (not just helpers return data) ------
